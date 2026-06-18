@@ -2,6 +2,7 @@
 	"name": "@monad-inc/embed-workspace",
 	"version": "0.0.0",
 	"private": true,
+	"type": "module",
 	"license": "Apache-2.0",
 	"description": "Workspace root for Monad's public embed SDKs. Tools to embed Monad's UI in other apps using a secure iframe and safe cross-browser comms.",
 	"author": "Monad Inc.",

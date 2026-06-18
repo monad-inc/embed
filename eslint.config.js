@@ -14,6 +14,11 @@ export default tseslint.config(
 				projectService: true,
 				tsconfigRootDir: import.meta.dirname
 			}
+		},
+		rules: {
+			// The SDK deliberately treats Monad API responses as untyped JSON
+			// (see MonadRequest in lifecycle.ts). Surface but don't block on it.
+			'@typescript-eslint/no-explicit-any': 'warn'
 		}
 	}
 );

@@ -1,0 +1,70 @@
+{
+	"name": "@monad-inc/connect",
+	"version": "0.1.0",
+	"description": "Host-side SDK for embedding Monad's connector-config UI as a secure cross-origin iframe. The customer's page calls createConnectorFrame(); the form and every secret typed into it run inside a Monad-hosted iframe, so the host's JavaScript never sees credential material — only a connector id reference comes back. Zero runtime dependencies.",
+	"license": "Apache-2.0",
+	"author": "Monad Inc.",
+	"homepage": "https://github.com/monad-inc/embed/tree/main/packages/connect",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/monad-inc/embed.git",
+		"directory": "packages/connect"
+	},
+	"bugs": {
+		"url": "https://github.com/monad-inc/embed/issues"
+	},
+	"keywords": [
+		"monad",
+		"connector",
+		"embed",
+		"white-label"
+	],
+	"type": "module",
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		}
+	},
+	"sideEffects": false,
+	"files": [
+		"dist",
+		"README.md",
+		"USAGE.md",
+		"CHANGELOG.md",
+		"LICENSE",
+		"NOTICE"
+	],
+	"engines": {
+		"node": ">=18"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsup src/index.ts --format esm,cjs --dts --sourcemap",
+		"build:watch": "tsup src/index.ts --format esm,cjs --dts --sourcemap --watch",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
+	},
+	"devDependencies": {
+		"@types/node": "^22.9.0",
+		"jsdom": "^25.0.1",
+		"tsup": "^8.3.5",
+		"typescript": "^5.6.3",
+		"vitest": "^2.1.5"
+	}
+}
