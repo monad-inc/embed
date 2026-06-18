@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `@monad-inc/connect` will be documented in this
+All notable changes to `@monad-inc/embed` will be documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Initial private release of the `createConnectorFrame` host SDK for
-  embedding Monad's connector-config UI as a secure cross-origin
-  iframe.
+- Initial release of the `@monad-inc/embed/connect` host SDK
+  (`createConnectorFrame`) for embedding Monad's connector-config UI as a
+  secure cross-origin iframe.
 - Lifecycle helpers: `buildDevNullPipeline`, `findIntegrationPipeline`,
   `setIntegrationEnabled`, `disableIntegration`, `enableIntegration`,
   `deleteIntegration`.

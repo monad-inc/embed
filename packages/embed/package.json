@@ -1,14 +1,14 @@
 {
-	"name": "@monad-inc/connect",
+	"name": "@monad-inc/embed",
 	"version": "0.1.0",
-	"description": "Host-side SDK for embedding Monad's connector-config UI as a secure cross-origin iframe. The customer's page calls createConnectorFrame(); the form and every secret typed into it run inside a Monad-hosted iframe, so the host's JavaScript never sees credential material — only a connector id reference comes back. Zero runtime dependencies.",
+	"description": "SDK for embedding Monad's UI in other apps via a secure cross-origin iframe. The connect module (createConnectorFrame()) renders the connector-config form inside a Monad-hosted iframe, so the host's JavaScript never sees credential material — only a connector id reference comes back. Zero runtime dependencies.",
 	"license": "Apache-2.0",
 	"author": "Monad Inc.",
-	"homepage": "https://github.com/monad-inc/embed/tree/main/packages/connect",
+	"homepage": "https://github.com/monad-inc/embed/tree/main/packages/embed",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/monad-inc/embed.git",
-		"directory": "packages/connect"
+		"directory": "packages/embed"
 	},
 	"bugs": {
 		"url": "https://github.com/monad-inc/embed/issues"
@@ -20,20 +20,18 @@
 		"white-label"
 	],
 	"type": "module",
-	"main": "./dist/index.cjs",
-	"module": "./dist/index.js",
-	"types": "./dist/index.d.ts",
 	"exports": {
-		".": {
+		"./connect": {
 			"import": {
-				"types": "./dist/index.d.ts",
-				"default": "./dist/index.js"
+				"types": "./dist/connect/index.d.ts",
+				"default": "./dist/connect/index.js"
 			},
 			"require": {
-				"types": "./dist/index.d.cts",
-				"default": "./dist/index.cjs"
+				"types": "./dist/connect/index.d.cts",
+				"default": "./dist/connect/index.cjs"
 			}
-		}
+		},
+		"./package.json": "./package.json"
 	},
 	"sideEffects": false,
 	"files": [
@@ -53,8 +51,8 @@
 		"provenance": true
 	},
 	"scripts": {
-		"build": "tsup src/index.ts --format esm,cjs --dts --sourcemap",
-		"build:watch": "tsup src/index.ts --format esm,cjs --dts --sourcemap --watch",
+		"build": "tsup",
+		"build:watch": "tsup --watch",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",

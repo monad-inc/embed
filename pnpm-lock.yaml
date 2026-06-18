@@ -27,7 +27,7 @@ importers:
         specifier: ^8.11.0
         version: 8.61.1(eslint@9.39.4)(typescript@5.9.3)
 
-  packages/connect:
+  packages/embed:
     devDependencies:
       '@types/node':
         specifier: ^22.9.0
