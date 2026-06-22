@@ -15,7 +15,7 @@ Actions OIDC trusted publishing (no long-lived `NPM_TOKEN`).
 ## One-time bootstrap (first publish of a new package)
 
 npm's trusted publisher can only be attached to a package that already exists, so the very
-first publish of `@monad-inc/connect` is done by hand. **Requires npm ≥ 11.5 and an npm
+first publish of `@monad-inc/embed` is done by hand. **Requires npm ≥ 11.5 and an npm
 account in the `monad-inc` org with publish rights.**
 
 1. `npm install -g npm@latest` (local npm is 10.x; provenance needs ≥ 11.5).
@@ -26,9 +26,9 @@ account in the `monad-inc` org with publish rights.**
      `release.yml` (it already has `id-token: write`, so provenance attaches). Delete the
      token immediately after.
    - **Fallback — laptop publish (no provenance on first version):** from
-     `packages/connect/`, `npm publish --access public`. Provenance only attaches on
+     `packages/embed/`, `npm publish --access public`. Provenance only attaches on
      subsequent CI publishes.
-4. On npmjs.com: **`@monad-inc/connect` → Settings → Trusted Publisher → GitHub Actions**,
+4. On npmjs.com: **`@monad-inc/embed` → Settings → Trusted Publisher → GitHub Actions**,
    set org `monad-inc`, repo `embed`, workflow `release.yml`. Then **delete any temporary
    `NPM_TOKEN`**. All future releases are tokenless.
 
@@ -36,8 +36,8 @@ account in the `monad-inc` org with publish rights.**
 
 ```sh
 # in a scratch dir with NO .npmrc auth / NO NPM_TOKEN:
-npm view @monad-inc/connect          # shows the version
-npm install @monad-inc/connect       # succeeds anonymously => access:public worked
+npm view @monad-inc/embed            # shows the version
+npm install @monad-inc/embed         # succeeds anonymously => access:public worked
 npm audit signatures                 # confirms provenance attestation
 ```
 

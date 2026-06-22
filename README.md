@@ -8,20 +8,30 @@ iframe, so the host's JavaScript never sees credential material.
 
 ## Packages
 
-| Package                                    | Description                                                                                                           |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| [`@monad-inc/connect`](./packages/connect) | Host-side SDK — `createConnectorFrame()`, lifecycle helpers, and the postMessage protocol. Zero runtime dependencies. |
+| Package                                | Description                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`@monad-inc/embed`](./packages/embed) | Public embed SDK. Functionality is exposed through subpath modules. Zero runtime dependencies. |
+
+### Modules
+
+| Import                     | Description                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `@monad-inc/embed/connect` | Host-side SDK — `createConnectorFrame()`, lifecycle helpers, and the postMessage protocol. |
 
 ## Install
 
 ```sh
-npm install @monad-inc/connect
+npm install @monad-inc/embed
 # or
-pnpm add @monad-inc/connect
+pnpm add @monad-inc/embed
 ```
 
-See the [`@monad-inc/connect` README](./packages/connect/README.md) and
-[`USAGE.md`](./packages/connect/USAGE.md) for the API and integration guide.
+```ts
+import { createConnectorFrame } from '@monad-inc/embed/connect';
+```
+
+See the [`@monad-inc/embed` README](./packages/embed/README.md) and
+[`USAGE.md`](./packages/embed/USAGE.md) for the API and integration guide.
 
 ## Repo layout
 

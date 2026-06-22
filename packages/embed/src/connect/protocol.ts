@@ -1,11 +1,11 @@
 /**
- * postMessage contract between the host page (@monad-inc/connect) and the
- * Monad-hosted iframe (@monad-inc/embed-frame).
+ * postMessage contract between the host page (@monad-inc/embed/connect) and
+ * the Monad-hosted iframe (@monad-inc/embed-frame).
  *
  * Why a protocol module: both sides must agree on message shapes, and a
  * drifting contract is a silent failure (a message just gets ignored).
- * @monad-inc/connect owns it because it's the public-facing SDK; the iframe
- * app imports these types from here.
+ * @monad-inc/embed/connect owns it because it's the public-facing SDK; the
+ * iframe app imports these types from here.
  *
  * Security model:
  *  - Origin is the real boundary. Every listener validates

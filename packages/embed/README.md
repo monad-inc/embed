@@ -1,14 +1,18 @@
-# @monad-inc/connect
+# @monad-inc/embed
 
-Host-side SDK for embedding Monad's connector-config UI as a secure
-cross-origin iframe. The customer's page calls `createConnectorFrame()`;
-the form and every secret typed into it run inside a Monad-hosted
-iframe, so the host's JavaScript never sees credential material — only
-a connector id reference comes back. The isolation model is analogous
-to Stripe Elements and Plaid Link.
+Tools for embedding Monad's UI in your own app via a secure cross-origin
+iframe. Functionality is exposed through subpath modules; the **connect**
+module — imported from `@monad-inc/embed/connect` — is the host-side SDK
+for Monad's connector-config UI.
 
-The package also ships a small lifecycle harness — isomorphic helpers
-for the host's backend to build, enable, disable, and delete a
+The customer's page calls `createConnectorFrame()`; the form and every
+secret typed into it run inside a Monad-hosted iframe, so the host's
+JavaScript never sees credential material — only a connector id reference
+comes back. The isolation model is analogous to Stripe Elements and Plaid
+Link.
+
+The connect module also ships a small lifecycle harness — isomorphic
+helpers for the host's backend to build, enable, disable, and delete a
 connector's pipeline against Monad's REST API.
 
 Zero runtime dependencies.
@@ -16,8 +20,11 @@ Zero runtime dependencies.
 ## Installation
 
 ```sh
-npm install @monad-inc/connect
+npm install @monad-inc/embed
 ```
+
+The connect SDK is imported from the `@monad-inc/embed/connect` subpath
+(see below).
 
 ## Quick start
 
@@ -28,7 +35,7 @@ never in the iframe URL, so it stays out of browser history and the
 browser as `sessionToken`:
 
 ```ts
-import { createConnectorFrame } from '@monad-inc/connect';
+import { createConnectorFrame } from '@monad-inc/embed/connect';
 
 const frame = createConnectorFrame({
 	container: '#connector-modal-body',
@@ -73,7 +80,7 @@ import {
 	deleteIntegration,
 	CLEANUP_FULL,
 	type MonadRequest
-} from '@monad-inc/connect';
+} from '@monad-inc/embed/connect';
 
 const request: MonadRequest = (path, init) =>
 	fetch(`${API_BASE}${path}`, {
@@ -150,4 +157,4 @@ compatibility. See `CHANGELOG.md` for release notes.
 
 ## License
 
-Proprietary. © Monad Inc. All rights reserved. See `LICENSE.md`.
+Apache-2.0 © Monad Inc. See `LICENSE` and `NOTICE`.

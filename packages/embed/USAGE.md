@@ -1,4 +1,4 @@
-# Using `@monad-inc/connect`
+# Using `@monad-inc/embed/connect`
 
 Host-side SDK for embedding Monad's connector-config UI into your own
 product. The form runs inside a Monad-hosted iframe — every secret a
@@ -11,7 +11,7 @@ model as Stripe Elements and Plaid Link.
 ## Install
 
 ```bash
-npm install @monad-inc/connect
+npm install @monad-inc/embed
 ```
 
 ESM and CJS builds ship side-by-side, with full TypeScript types.
@@ -74,7 +74,7 @@ The `session_token` is what your frontend hands to `createConnectorFrame`.
 ## Step 2 — Mount the iframe on your frontend
 
 ```ts
-import { createConnectorFrame } from '@monad-inc/connect';
+import { createConnectorFrame } from '@monad-inc/embed/connect';
 
 // Fetch a fresh session from your own backend.
 const { session_token, organizationId } = await fetch('/api/monad/session', {

@@ -1,6 +1,6 @@
 /**
- * @monad-inc/connect — host-side SDK for embedding Monad's connector-config
- * UI as a secure iframe.
+ * @monad-inc/embed/connect — host-side SDK for embedding Monad's
+ * connector-config UI as a secure iframe.
  *
  * The customer's page calls `createConnectorFrame()`; this injects an
  * <iframe> pointing at a Monad-hosted page (@monad-inc/embed-frame). The
