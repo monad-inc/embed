@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch: # manual trigger for the one-time bootstrap publish
 
 concurrency:
   group: release-${{ github.ref }}
@@ -43,5 +44,10 @@ jobs:
           publish: pnpm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No NPM_TOKEN: npm mints a short-lived credential from the OIDC
-          # token once a trusted publisher is configured on npmjs.com.
+          # TEMPORARY (ENG-8648 bootstrap): a trusted publisher can't be attached
+          # to a package that doesn't exist yet, so the first publish uses a token.
+          # changesets/action writes the .npmrc auth from this env var; combined with
+          # `id-token: write` + `publishConfig.provenance`, provenance still attaches.
+          # REMOVE this line once @monad-inc/embed exists and the npmjs.com trusted
+          # publisher is configured — then releases are fully tokenless.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
