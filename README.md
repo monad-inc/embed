@@ -33,6 +33,12 @@ import { createConnectorFrame } from '@monad-inc/embed/connect';
 See the [`@monad-inc/embed` README](./packages/embed/README.md) and
 [`USAGE.md`](./packages/embed/USAGE.md) for the API and integration guide.
 
+## Guides
+
+| Guide                                        | Description                                                                            |
+| -------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [Connector icons](./docs/connector-icons.md) | Fetch vendor logos for the connectors you embed, via the public raw SVG icon endpoint. |
+
 ## Repo layout
 
 This is a [pnpm](https://pnpm.io) workspace. Package sources live under `packages/*`.
