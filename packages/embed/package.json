@@ -1,6 +1,6 @@
 {
 	"name": "@monad-inc/embed",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "SDK for embedding Monad's UI in other apps via a secure cross-origin iframe. The connect module (createConnectorFrame()) renders the connector-config form inside a Monad-hosted iframe, so the host's JavaScript never sees credential material — only a connector id reference comes back. Zero runtime dependencies.",
 	"license": "Apache-2.0",
 	"author": "Monad Inc.",
