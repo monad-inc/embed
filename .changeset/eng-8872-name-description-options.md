@@ -1,5 +1,5 @@
 ---
-"@monad-inc/embed": minor
+'@monad-inc/embed': minor
 ---
 
 Port the ENG-8845 connector name/description options into the connect SDK.
