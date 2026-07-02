@@ -114,6 +114,10 @@ controls the surrounding chrome.
 | `typeId`         | `string`                     | ✅       | —                             | Connector type slug, e.g. `'aws-cloudtrail'`, `'okta-systemlog'`.                    |
 | `existingId`     | `string`                     | ⛔       | —                             | Pass to edit an existing connector. Omit to create a new one.                        |
 | `displayName`    | `string`                     | ⛔       | the connector type's name     | Title shown in the iframe header.                                                    |
+| `name`           | `string`                     | ⛔       | type name + unique suffix     | Name for the created connector. On edit, omit to keep the existing name.             |
+| `description`    | `string`                     | ⛔       | the connector type's description | Description for the created connector. On edit, omit to keep the existing description. |
+| `isNameEditable` | `boolean`                    | ⛔       | `false`                       | Show an editable name input in the iframe (prefilled with `name` if provided, else the type name). A non-empty name is required when shown. |
+| `isDescriptionEditable` | `boolean`             | ⛔       | `false`                       | Show an editable description input in the iframe (prefilled with `description` if provided). |
 | `appearance`     | `Appearance`                 | ⛔       | Monad defaults                | Theming tokens (see below).                                                          |
 | `synthetic`      | `boolean`                    | ⛔       | `false`                       | Exposes Monad's internal synthetic-data toggle. Keep off in production.              |
 | `frameOrigin`    | `string`                     | ⛔       | `https://app.monad.com/embed` | Override only for non-prod testing.                                                  |

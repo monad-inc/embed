@@ -88,6 +88,29 @@ export interface ConnectorFrameOptions {
 	organizationId: string;
 	/** Display name shown in the frame header. */
 	displayName?: string;
+	/**
+	 * Name for the created connector. On create, defaults to the connector
+	 * type's name plus a short unique suffix. On edit, omit to keep the
+	 * existing name.
+	 */
+	name?: string;
+	/**
+	 * Description for the created connector. On create, defaults to the
+	 * connector type's description. On edit, omit to keep the existing
+	 * description.
+	 */
+	description?: string;
+	/**
+	 * Show an editable name input inside the iframe (prefilled with the
+	 * resolved name) so the end user can name the connector themselves.
+	 * A non-empty name is required when shown. Defaults to false.
+	 */
+	isNameEditable?: boolean;
+	/**
+	 * Show an editable description input inside the iframe (prefilled with
+	 * the resolved description). Defaults to false.
+	 */
+	isDescriptionEditable?: boolean;
 	/** Existing connector id — pass for edit mode, omit to create. */
 	existingId?: string;
 	/**
@@ -208,6 +231,10 @@ export function createConnectorFrame(opts: ConnectorFrameOptions): ConnectorFram
 					typeId: opts.typeId,
 					kind: opts.kind,
 					displayName: opts.displayName,
+					name: opts.name,
+					description: opts.description,
+					isNameEditable: opts.isNameEditable,
+					isDescriptionEditable: opts.isDescriptionEditable,
 					existingId: opts.existingId,
 					synthetic: opts.synthetic,
 					appearance: opts.appearance,
