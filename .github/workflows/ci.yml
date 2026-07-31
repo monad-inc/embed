@@ -69,7 +69,7 @@ jobs:
         working-directory: conformance
         run: |
           uv venv --python 3.10 .venv
-          uv pip install --python .venv/bin/python schemathesis pytest httpx
+          uv pip install --python .venv/bin/python schemathesis pytest httpx jsonschema
 
       - name: Run conformance against the TS router
         working-directory: conformance

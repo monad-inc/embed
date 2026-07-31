@@ -21,13 +21,20 @@ ROUTER = os.environ.get("ROUTER", "python")
 MOCK_PORT = int(os.environ.get("MOCK_PORT", "8790"))
 ROUTER_PORT = int(os.environ.get("ROUTER_PORT", "8791"))
 
+# Live mode boots the router against the real Monad API (MONAD_API_BASE +
+# MONAD_API_KEY + MONAD_ORG_ID … supplied by the caller) instead of the mock.
+LIVE = os.environ.get("MONAD_LIVE") == "1"
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.abspath(os.path.join(_HERE, ".."))
 
 
 def _command() -> tuple[list[str], str, dict[str, str]]:
     env = dict(os.environ)
-    env["MONAD_API_BASE"] = f"http://127.0.0.1:{MOCK_PORT}"
+    # In mock mode we own MONAD_API_BASE (point the router at the local mock);
+    # in live mode the caller's real MONAD_API_BASE is passed through untouched.
+    if not LIVE:
+        env["MONAD_API_BASE"] = f"http://127.0.0.1:{MOCK_PORT}"
     env["PORT"] = str(ROUTER_PORT)
     if ROUTER == "python":
         return [os.path.join(_HERE, ".venv", "bin", "python"), os.path.join(_HERE, "servers", "py_server.py")], _HERE, env
@@ -52,7 +59,8 @@ def _wait_healthy(url: str, timeout: float = 45.0) -> bool:
 
 @pytest.fixture(scope="session", autouse=True)
 def servers():
-    server, _state = mock_monad.start(MOCK_PORT)
+    # Live mode talks to real Monad — no mock to boot.
+    server = None if LIVE else mock_monad.start(MOCK_PORT)[0]
     cmd, cwd, env = _command()
     # New session so we can kill the whole group (e.g. `go run` + its child binary).
     proc = subprocess.Popen(cmd, cwd=cwd, env=env, start_new_session=True)
@@ -72,4 +80,5 @@ def servers():
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        server.shutdown()
+        if server is not None:
+            server.shutdown()

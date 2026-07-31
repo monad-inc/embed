@@ -8,6 +8,7 @@ and content type. This is language-agnostic: it drives whichever router the
 
 import os
 
+import pytest
 import schemathesis
 from schemathesis.specs.openapi.checks import (
     content_type_conformance,
@@ -19,6 +20,11 @@ _SPEC = os.path.join(
     os.path.dirname(__file__), "..", "packages", "embed", "openapi", "embed.openapi.yaml"
 )
 _BASE_URL = os.environ.get("ROUTER_BASE_URL", "http://127.0.0.1:8791")
+
+# Against real Monad (live mode) the fuzzer must not create resources with
+# generated payloads — restrict it to read-only GET operations, which are also
+# exactly the response-shape surface that has bitten us (catalog/connectors).
+LIVE = os.environ.get("MONAD_LIVE") == "1"
 
 schema = schemathesis.openapi.from_path(_SPEC)
 
@@ -39,4 +45,6 @@ _CONFORMANCE_CHECKS = [
 
 @schema.parametrize()
 def test_response_conforms_to_spec(case):
+    if LIVE and case.method.upper() != "GET":
+        pytest.skip("live mode fuzzes read-only GET operations only (no real mutations)")
     case.call_and_validate(base_url=_BASE_URL, checks=_CONFORMANCE_CHECKS)
