@@ -5,7 +5,11 @@ import { defineConfig } from 'tsup';
 // map points "./connect" at these files. Add sibling entries here as
 // new subpath modules land (e.g. a future top-level "." aggregate).
 export default defineConfig({
-	entry: { 'connect/index': 'src/connect/index.ts' },
+	entry: {
+		'connect/index': 'src/connect/index.ts',
+		'kit/index': 'src/kit/index.ts',
+		'client/index': 'src/client/index.ts'
+	},
 	format: ['esm', 'cjs'],
 	dts: true,
 	sourcemap: true,
