@@ -1,0 +1,3 @@
+# Spectral ruleset for the /embed contract. Extends Spectral's built-in
+# OpenAPI ruleset; this is the config CI runs (`spectral lint`).
+extends: ['spectral:oas']

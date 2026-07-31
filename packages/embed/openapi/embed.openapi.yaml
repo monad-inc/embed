@@ -1,0 +1,672 @@
+openapi: 3.1.0
+info:
+  title: Monad Embed — Host Backend Routes
+  summary: The `/embed` route contract a host application mounts to power a Monad embed integration.
+  description: |
+    This is the **contract** between a host application's browser code and its
+    own backend, for a Monad embed integration. The host mounts these routes
+    under `/embed` in whatever framework and language it already uses; the
+    Monad-provided frontend client calls them. The routes are the seam between
+    the browser (which only ever holds a short-lived session token) and the
+    backend (which holds the long-lived Monad API key and calls the Monad API).
+
+    This spec is deliberately **not** used to generate servers. Each backend is
+    hand-written to be idiomatic in its language; this document is the shared
+    contract they all conform to, enforced by a spec-driven conformance suite.
+    It *is* suitable for generating the frontend client and for property-based
+    conformance testing (e.g. Schemathesis).
+
+    ## Conventions
+
+    - **camelCase everywhere.** The Monad API itself mixes snake_case and
+      camelCase; each backend normalizes at its boundary so this host-facing
+      contract stays uniformly camelCase.
+    - **Auth is the host's.** These routes run inside the host app and are
+      protected by its existing session/auth. The backend derives the Monad
+      team (`organizationId`) from the authenticated request via its own
+      `getCustomerOrgID` hook — the browser never sends a tenant id.
+    - **The pre-provisioned side is server-resolved.** For ingress the store
+      output, for egress the source input, and the delete cleanup policy are
+      all decided server-side from host config — never sent by the browser.
+  version: 0.1.0
+  contact:
+    name: Monad Inc.
+    url: https://monad.com
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+
+externalDocs:
+  description: Integration architecture (frontend/backend split + this contract)
+  url: https://github.com/monad-inc/embed
+
+servers:
+  - url: /
+    description: >
+      The host application's own origin. These routes are mounted under
+      `/embed` in the host's router; paths below already include that prefix.
+
+tags:
+  - name: Config
+    description: Non-secret configuration the browser needs to mount the iframe.
+  - name: Session
+    description: Minting short-lived, team-scoped tokens for the iframe.
+  - name: Catalog
+    description: Which connector types are offered, and what a tenant has configured.
+  - name: Pipelines
+    description: Standing up and managing the pipeline behind a configured connector.
+
+security:
+  - hostSession: []
+
+paths:
+  /embed/config:
+    get:
+      operationId: getConfig
+      tags: [Config]
+      summary: Get iframe configuration
+      description: >
+        Returns the non-secret values the browser needs to mount the Monad
+        iframe: the frame origin and the Monad API base. Safe to expose; contains
+        no credentials.
+      security: []
+      responses:
+        '200':
+          description: The iframe configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+              example:
+                frameOrigin: https://app.monad.com/embed
+                apiBase: https://app.monad.com/api
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/session:
+    post:
+      operationId: createSession
+      tags: [Session]
+      summary: Mint an embed session token
+      description: >
+        Trades the host's long-lived Monad API key for a short-lived,
+        team-scoped session token. The tenant is derived from the authenticated
+        request server-side (never sent by the browser). The returned token is
+        the only credential that crosses into the iframe.
+      responses:
+        '200':
+          description: A freshly minted session, scoped to the caller's tenant team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              example:
+                sessionToken: eyJhbGciOiJSUzI1NiJ9.eyJvcmciOiI3ZjkzYjMwMiJ9.sig
+                organizationId: 7f93b302-fdb8-40e9-83c5-f9e555b91477
+                expiresAt: '2026-07-14T18:30:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/catalog:
+    get:
+      operationId: listCatalog
+      tags: [Catalog]
+      summary: List available connector types
+      description: >
+        The connector types the host offers for a kind. The host curates this
+        server-side (its allow-list); a product rarely exposes all of Monad's
+        connectors.
+      parameters:
+        - $ref: '#/components/parameters/KindQuery'
+      responses:
+        '200':
+          description: The available connector types for the requested kind.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CatalogType'
+              example:
+                - typeId: aws-cloudtrail
+                  name: AWS CloudTrail
+                - typeId: okta-systemlog
+                  name: Okta System Log
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/connectors:
+    get:
+      operationId: listConnectors
+      tags: [Catalog]
+      summary: List a tenant's configured connectors
+      description: The connectors the caller's tenant has already configured, so the host can show and manage them.
+      parameters:
+        - $ref: '#/components/parameters/KindQuery'
+      responses:
+        '200':
+          description: The tenant's configured connectors for the requested kind.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConfiguredConnector'
+              example:
+                - id: 018f9c3a-1d2e-7a4b-9c8d-1e2f3a4b5c6d
+                  typeId: aws-cloudtrail
+                  name: Audit Logs
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/pipelines/ingress:
+    post:
+      operationId: buildIngressPipeline
+      tags: [Pipelines]
+      summary: Build an ingress pipeline
+      description: >
+        Called after the user configures an **input** in the iframe. Wires that
+        input to the tenant's destination and starts it. The destination (a
+        pre-provisioned store, or a throwaway dev/null sink) is resolved
+        server-side from host config — the browser sends only the input id it
+        just received and a name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngressRequest'
+            example:
+              inputId: 018f9c3a-1d2e-7a4b-9c8d-1e2f3a4b5c6d
+              name: AWS CloudTrail
+      responses:
+        '201':
+          description: The pipeline was created and is starting.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuiltPipeline'
+              example:
+                pipelineId: 018f9c3a-9a8b-7c6d-5e4f-3a2b1c0d9e8f
+                outputId: 018f9c3a-aaaa-7bbb-8ccc-9ddd0eee1fff
+                status: Running
+                active: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/pipelines/egress:
+    post:
+      operationId: buildEgressPipeline
+      tags: [Pipelines]
+      summary: Build an egress pipeline
+      description: >
+        Called after the user configures an **output** in the iframe. Wires the
+        tenant's pre-provisioned source to that output and starts it. The source
+        is resolved server-side from host config — the browser sends only the
+        output id it just received and a name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EgressRequest'
+            example:
+              outputId: 018f9c3a-bbbb-7ccc-8ddd-9eee0fff1aaa
+              name: Splunk HEC
+      responses:
+        '201':
+          description: The pipeline was created and is starting.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuiltPipeline'
+              example:
+                pipelineId: 018f9c3a-9a8b-7c6d-5e4f-3a2b1c0d9e8f
+                outputId: 018f9c3a-bbbb-7ccc-8ddd-9eee0fff1aaa
+                status: Running
+                active: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/pipelines:
+    get:
+      operationId: getPipelineStatus
+      tags: [Pipelines]
+      summary: Resolve a connector's pipeline status
+      description: >
+        Given a configured connector (by id and kind), report whether it has a
+        pipeline, whether that pipeline is enabled, and the related ids — so the
+        host can render manage controls knowing only the connector.
+      parameters:
+        - $ref: '#/components/parameters/ConnectorIdQuery'
+        - $ref: '#/components/parameters/KindQuery'
+      responses:
+        '200':
+          description: The resolved pipeline status. `hasPipeline` is false when the connector feeds no pipeline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineStatus'
+              example:
+                hasPipeline: true
+                enabled: true
+                pipelineId: 018f9c3a-9a8b-7c6d-5e4f-3a2b1c0d9e8f
+                outputId: 018f9c3a-aaaa-7bbb-8ccc-9ddd0eee1fff
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/pipelines/state:
+    post:
+      operationId: setPipelineState
+      tags: [Pipelines]
+      summary: Enable or disable a pipeline
+      description: >
+        Stop or resume data flow without deleting any configuration. Disabling
+        keeps the input, output, and pipeline intact so a later enable resumes
+        it as it was.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StateRequest'
+            example:
+              pipelineId: 018f9c3a-9a8b-7c6d-5e4f-3a2b1c0d9e8f
+              enabled: false
+      responses:
+        '204':
+          description: The pipeline's enabled state was updated.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /embed/pipelines/remove:
+    post:
+      operationId: removeIntegration
+      tags: [Pipelines]
+      summary: Remove a connector's integration
+      description: >
+        Tear down the integration behind a configured connector. The backend
+        resolves the pipeline from the connector and applies its own cleanup
+        policy (which of the pipeline, input, and output to delete) — for
+        example keeping a shared store or source that other integrations use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveRequest'
+            example:
+              connectorId: 018f9c3a-1d2e-7a4b-9c8d-1e2f3a4b5c6d
+              kind: input
+      responses:
+        '204':
+          description: The integration was removed per the host's cleanup policy.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    hostSession:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >
+        The host application's own session/auth. These routes are mounted inside
+        the host app and protected by its existing middleware; the cookie shown
+        here is illustrative — use whatever your app already uses. The backend
+        derives the Monad team (`organizationId`) from this authenticated request
+        via its `getCustomerOrgID` hook. `GET /embed/config` is the only unauthenticated
+        route.
+
+  parameters:
+    KindQuery:
+      name: kind
+      in: query
+      required: true
+      description: Which catalog a connector belongs to.
+      schema:
+        $ref: '#/components/schemas/ComponentKind'
+    ConnectorIdQuery:
+      name: connectorId
+      in: query
+      required: true
+      description: Id of the configured connector to resolve.
+      schema:
+        type: string
+
+  schemas:
+    ComponentKind:
+      type: string
+      description: Whether a connector is a data source (`input`) or a destination (`output`).
+      enum: [input, output]
+
+    Config:
+      type: object
+      description: Non-secret configuration the browser needs to mount the iframe.
+      additionalProperties: false
+      required: [frameOrigin, apiBase]
+      properties:
+        frameOrigin:
+          type: string
+          format: uri
+          description: Origin (with optional path) serving the Monad iframe.
+        apiBase:
+          type: string
+          format: uri
+          description: Base URL of the Monad API the iframe calls.
+
+    Session:
+      type: object
+      description: A minted embed session, shaped to drop straight into the frontend iframe mount.
+      additionalProperties: false
+      required: [sessionToken, organizationId, expiresAt]
+      properties:
+        sessionToken:
+          type: string
+          description: Short-lived, team-scoped token. Pass to the iframe; never log or persist.
+        organizationId:
+          type: string
+          description: The Monad team (org) id the token is scoped to.
+        expiresAt:
+          type: string
+          format: date-time
+          description: ISO-8601 expiry, so the host can re-mint before rendering if stale.
+
+    CatalogType:
+      type: object
+      description: A connector type available to embed.
+      additionalProperties: false
+      required: [typeId, name]
+      properties:
+        typeId:
+          type: string
+          description: Connector type slug, e.g. `aws-cloudtrail`.
+        name:
+          type: string
+          description: Human-readable connector type name.
+
+    ConfiguredConnector:
+      type: object
+      description: A connector a tenant has already configured.
+      additionalProperties: false
+      required: [id, typeId, name]
+      properties:
+        id:
+          type: string
+          description: The configured connector's id.
+        typeId:
+          type: string
+          description: Connector type slug (normalized from the Monad API's `type` field).
+        name:
+          type: string
+          description: The connector's configured name.
+
+    IngressRequest:
+      type: object
+      description: Build an ingress pipeline from a just-configured input.
+      additionalProperties: false
+      required: [inputId, name]
+      properties:
+        inputId:
+          type: string
+          description: Id of the input the user just configured in the iframe.
+        name:
+          type: string
+          minLength: 1
+          description: Name for the created pipeline.
+
+    EgressRequest:
+      type: object
+      description: Build an egress pipeline to a just-configured output.
+      additionalProperties: false
+      required: [outputId, name]
+      properties:
+        outputId:
+          type: string
+          description: Id of the output the user just configured in the iframe.
+        name:
+          type: string
+          minLength: 1
+          description: Name for the created pipeline.
+
+    BuiltPipeline:
+      type: object
+      description: The result of standing up a pipeline.
+      additionalProperties: false
+      required: [pipelineId, outputId, status, active]
+      properties:
+        pipelineId:
+          type: string
+          description: Id of the created pipeline.
+        outputId:
+          type: string
+          description: >
+            Id of the pipeline's destination output — the tenant's store or the
+            auto-created dev/null sink for ingress, or the user's output for egress.
+        status:
+          type: string
+          description: >
+            Latest pipeline status polled after creation. Known values include
+            `Pending`, `Running`, `Erroring`, and `Unknown`; treat unrecognized
+            values as non-fatal, since Monad may introduce new ones.
+        active:
+          type: boolean
+          description: True once the pipeline reports `Running`.
+
+    PipelineStatus:
+      type: object
+      description: A configured connector's resolved pipeline state.
+      additionalProperties: false
+      required: [hasPipeline, enabled]
+      properties:
+        hasPipeline:
+          type: boolean
+          description: Whether the connector feeds a pipeline at all.
+        enabled:
+          type: boolean
+          description: Whether that pipeline is currently enabled. False when there is no pipeline.
+        pipelineId:
+          type: string
+          description: Id of the pipeline, when one exists.
+        inputId:
+          type: string
+          description: The pipeline's input id, when resolvable (populated for an output connector).
+        outputId:
+          type: string
+          description: The pipeline's output id, when resolvable (populated for an input connector).
+
+    StateRequest:
+      type: object
+      description: Enable or disable a pipeline.
+      additionalProperties: false
+      required: [pipelineId, enabled]
+      properties:
+        pipelineId:
+          type: string
+          description: Id of the pipeline to update.
+        enabled:
+          type: boolean
+          description: True to resume processing, false to stop it (config is kept either way).
+
+    RemoveRequest:
+      type: object
+      description: Remove the integration behind a configured connector.
+      additionalProperties: false
+      required: [connectorId, kind]
+      properties:
+        connectorId:
+          type: string
+          description: Id of the configured connector whose integration should be removed.
+        kind:
+          $ref: '#/components/schemas/ComponentKind'
+
+    Error:
+      type: object
+      description: A uniform error body returned for every non-2xx response.
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_request
+            - unauthenticated
+            - forbidden
+            - not_found
+            - conflict
+            - upstream_error
+            - internal_error
+          description: Stable, machine-readable error code.
+        message:
+          type: string
+          description: Human-readable explanation, safe to surface to a developer (not necessarily an end user).
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional structured context (e.g. the offending field).
+
+  responses:
+    BadRequest:
+      description: The request was malformed — a missing/invalid parameter or body field.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: invalid_request
+            message: "Query parameter 'kind' must be one of: input, output."
+    Unauthenticated:
+      description: The caller is not authenticated by the host application.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: unauthenticated
+            message: No authenticated host session on the request.
+    Forbidden:
+      description: >
+        Authenticated, but not permitted for the requested tenant or resource —
+        for example the host's `getCustomerOrgID` could not map the caller to a Monad team.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: forbidden
+            message: The authenticated user is not a member of the requested tenant.
+    NotFound:
+      description: The referenced connector or pipeline does not exist for this tenant.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: not_found
+            message: No connector found with the given id.
+    Conflict:
+      description: >
+        The request conflicts with existing state — for example a connector or
+        secret name collision (a known Monad constraint when connecting two of
+        the same type).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: conflict
+            message: A connector with that name already exists in this team.
+    UpstreamError:
+      description: The Monad API returned an error or was unreachable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: upstream_error
+            message: The Monad API returned 503 while creating the pipeline.
+    InternalError:
+      description: An unexpected error in the host backend.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: internal_error
+            message: An unexpected error occurred.
