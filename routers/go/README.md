@@ -69,7 +69,7 @@ r.Any("/embed/*any", gin.WrapH(http.StripPrefix("/embed", h)))
 | `APIKey`                   | Long-lived Monad API key (server-side only).                                                                   |
 | `APIBase`                  | Monad API base. Optional — defaults to `https://app.monad.com/api` (production).                               |
 | `FrameOrigin`              | Iframe origin returned by `GET /embed/config`. Optional — defaults to production.                              |
-| `GetCustomerOrgID`         | **The tenant-isolation boundary** — see below. Return `("", nil)` or an error to reject (→ 401).                |
+| `GetCustomerOrgID`         | **The tenant-isolation boundary** — see below. Return `("", nil)` or an error to reject (→ 401).               |
 | `GetProvisionedComponents` | Per-tenant `Provision{ DestinationOutputID, SourceInputID }`. Nil → ingress uses dev/null, egress unavailable. |
 | `CatalogAllow`             | Restrict the catalog to these connector type ids. Nil → all.                                                   |
 
@@ -104,7 +104,7 @@ its own beyond calling this hook, and treats `("", nil)` or a non-nil error as
 
 You own this mapping because only you can know it: Monad has no endpoint that
 turns your product's bearer token into an org id. (`GET /v1/organizations` maps
-a *Monad API key* to the orgs it can reach — not your user to their tenant.)
+a _Monad API key_ to the orgs it can reach — not your user to their tenant.)
 Store the tenant → org id association when you provision the tenant.
 
 Zero external dependencies. `go test ./...`, `go vet ./...`, `gofmt` clean.
