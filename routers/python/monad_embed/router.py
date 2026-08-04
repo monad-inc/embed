@@ -164,10 +164,7 @@ def embed_router(
         if not connector_id:
             raise EmbedError(400, "invalid_request", "Query 'connectorId' is required.")
         kind = _require_kind(request.query_params.get("kind"))
-        if kind == "input":
-            status = await client.status_by_input(org, connector_id)
-        else:
-            status = await client.find_by_output(org, connector_id)
+        status = await client.pipeline_for(org, kind, connector_id)
         return JSONResponse(status.model_dump(exclude_none=True))
 
     async def set_pipeline_state(request: Request) -> Response:
@@ -186,23 +183,23 @@ def embed_router(
         connector_id = _require_str(body, "connectorId")
         kind = _require_kind(body.get("kind") if isinstance(body, dict) else None)
 
+        status = await client.pipeline_for(org, kind, connector_id)
+        # The pipeline references its connectors, so it goes first.
+        if status.pipelineId:
+            await client.delete(f"/v2/{_seg(org)}/pipelines/{_seg(status.pipelineId)}")
+
         if kind == "input":
-            status = await client.status_by_input(org, connector_id)
+            await client.delete(f"/v1/{_seg(org)}/inputs/{_seg(connector_id)}")
+            # The tenant's provisioned store is shared; only a sink this
+            # pipeline created on the fly gets torn down with it.
             prov = await _provision(config, org)
             keep_store = bool(
                 prov.destination_output_id
-                and status.outputId
                 and prov.destination_output_id == status.outputId
             )
-            if status.pipelineId:
-                await client.delete(f"/v2/{_seg(org)}/pipelines/{_seg(status.pipelineId)}")
-            await client.delete(f"/v1/{_seg(org)}/inputs/{_seg(connector_id)}")
             if status.outputId and not keep_store:
                 await client.delete(f"/v1/{_seg(org)}/outputs/{_seg(status.outputId)}")
         else:
-            status = await client.find_by_output(org, connector_id)
-            if status.pipelineId:
-                await client.delete(f"/v2/{_seg(org)}/pipelines/{_seg(status.pipelineId)}")
             # Keep the shared source input; remove only the user's output.
             await client.delete(f"/v1/{_seg(org)}/outputs/{_seg(connector_id)}")
         return Response(status_code=204)
