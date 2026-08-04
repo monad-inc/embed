@@ -22,6 +22,8 @@ import os
 import httpx
 import pytest
 
+import mock_monad
+
 _BASE_URL = os.environ.get("ROUTER_BASE_URL", "http://127.0.0.1:8791")
 
 LIVE = os.environ.get("MONAD_LIVE") == "1"
@@ -44,6 +46,13 @@ EXPECT_CATALOG = {s.strip() for s in _ALLOW.split(",") if s.strip()}
 skip_mutation = pytest.mark.skipif(
     LIVE and not MUTATE,
     reason="mutating live scenario — set MONAD_LIVE_MUTATE=1 with throwaway CONF_INPUT_ID/CONF_OUTPUT_ID",
+)
+
+# Scenarios that assert against the mock's seeded fixtures (exact row counts,
+# bulk pipeline creation). They pin router logic, not Monad behavior, so they
+# run hermetically only — a real tenant has its own arbitrary inventory.
+mock_only = pytest.mark.skipif(
+    LIVE, reason="asserts against the mock's seeded fixture counts; a live tenant has its own"
 )
 
 
@@ -80,6 +89,47 @@ def test_connectors_list_parses(client):
         assert isinstance(rows, list)
         for row in rows:
             assert {"id", "typeId", "name"} <= row.keys()
+
+
+@mock_only
+def test_connectors_pagination_is_exhaustive(client):
+    # Monad pages every list at limit=10 by default and the /embed contract
+    # returns a bare array, so the router owns draining the pages. A guard, not
+    # a gate: it fails a router that sends no `limit` at all, but it cannot
+    # distinguish exhaustive paging from a large hardcoded limit — the mock,
+    # like Monad, enforces no maximum. Correctness past a fixed ceiling is what
+    # live mode is for.
+    rows = client.get("/embed/connectors", params={"kind": "input"}).json()
+    assert len(rows) == mock_monad._SEEDED_INPUTS, (
+        f"expected all {mock_monad._SEEDED_INPUTS} configured inputs, got {len(rows)} "
+        "— the router is not draining pages"
+    )
+    assert len({r["id"] for r in rows}) == len(rows), "paging returned duplicates"
+
+
+@mock_only
+def test_status_resolves_past_the_first_page_of_pipelines(client):
+    # The regression gate for the "only ever sees 10 pipelines" bug: resolving a
+    # connector's pipeline must not depend on where that pipeline falls in the
+    # org's list. A router that scans `GET /v2/{org}/pipelines/` sees only the
+    # first page and reports hasPipeline:false for everything after it.
+    ids = [f"bulk_{i}" for i in range(1, 13)]
+    try:
+        for cid in ids:
+            r = client.post("/embed/pipelines/ingress", json={"inputId": cid, "name": cid})
+            assert r.status_code == 201, r.text
+
+        # The last one is well past page 1 (limit=10).
+        last = ids[-1]
+        r = client.get("/embed/pipelines", params={"connectorId": last, "kind": "input"})
+        assert r.status_code == 200, r.text
+        assert r.json()["hasPipeline"] is True, (
+            f"{last}'s pipeline was created but did not resolve — the router is "
+            "only seeing the first page of pipelines"
+        )
+    finally:
+        for cid in ids:
+            client.post("/embed/pipelines/remove", json={"connectorId": cid, "kind": "input"})
 
 
 def test_catalog_is_allow_listed(client):
@@ -127,12 +177,16 @@ def test_ingress_lifecycle(client):
     r = client.get("/embed/pipelines", params={"connectorId": INPUT_ID, "kind": "input"})
     assert r.json()["enabled"] is False
 
-    # 5) remove — the provisioned store is kept, the pipeline + input are gone
+    # 5) remove — the provisioned store is kept, the pipeline + input are gone.
+    # The input no longer exists upstream, so asking for its pipeline is a 404,
+    # not a 200 saying "no pipeline": the router resolves status by fetching the
+    # connector, and a deleted connector is genuinely not found.
     r = client.post("/embed/pipelines/remove", json={"connectorId": INPUT_ID, "kind": "input"})
     assert r.status_code == 204, r.text
 
     r = client.get("/embed/pipelines", params={"connectorId": INPUT_ID, "kind": "input"})
-    assert r.json()["hasPipeline"] is False
+    assert r.status_code == 404, r.text
+    assert r.json()["code"] == "not_found"
 
 
 @skip_mutation

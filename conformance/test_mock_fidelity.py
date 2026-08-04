@@ -64,10 +64,58 @@ def test_connectors_list_shape(http, kind):
     _valid(S.connectors_list(kind), r.json())
 
 
-def test_output_create_shape(http):
-    r = http.post(f"/v2/{_ORG}/outputs", json={"output_type": "dev-null", "name": "sink"})
+def test_connectors_list_defaults_to_ten(http):
+    # Monad's list handlers default `limit` to 10 with no maximum. A router that
+    # omits it gets a truncated page — the mock must reproduce that, not paper
+    # over it, or the "only ever sees 10" bug stays invisible until production.
+    unpaged = http.get(f"/v1/{_ORG}/inputs").json()
+    assert len(unpaged["inputs"]) == 10
+    assert unpaged["pagination"] == {"limit": 10, "offset": 0, "total": mock_monad._SEEDED_INPUTS}
+
+    rest = http.get(f"/v1/{_ORG}/inputs?limit=10&offset=10").json()
+    assert len(rest["inputs"]) == mock_monad._SEEDED_INPUTS - 10
+    # Past the end the list is null, not [] — the same shape as "tenant has none".
+    assert http.get(f"/v1/{_ORG}/inputs?limit=10&offset=99").json()["inputs"] is None
+
+
+@pytest.mark.parametrize("kind", ["input", "output"])
+def test_connector_detail_shape(http, kind):
+    cid = "in_conf" if kind == "input" else "out_store"
+    r = http.get(f"/v1/{_ORG}/{kind}s/{cid}")
+    assert r.status_code == 200, r.text
+    _valid(S.connector_detail(kind), r.json())
+    # Unconnected component → an empty `component_of`, not a missing key.
+    assert r.json()["component_of"] == []
+    assert http.get(f"/v1/{_ORG}/{kind}s/nope_404").status_code == 404
+
+
+def test_connector_detail_reports_component_of(http):
+    body = {
+        "name": "component-of",
+        "enabled": True,
+        "nodes": [
+            {"slug": "in", "component_id": "cfg_3", "component_type": "input", "enabled": True},
+            {"slug": "out", "component_id": "out_store", "component_type": "output", "enabled": True},
+        ],
+        "edges": [],
+    }
+    pid = http.post(f"/v2/{_ORG}/pipelines/", json=body).json()["id"]
+    for cid in ("cfg_3", "out_store"):
+        kind = "inputs" if cid.startswith("cfg") else "outputs"
+        entry = http.get(f"/v1/{_ORG}/{kind}/{cid}").json()["component_of"]
+        assert [p["id"] for p in entry] == [pid]
+        assert entry[0]["enabled"] is True
+    http.delete(f"/v2/{_ORG}/pipelines/{pid}")
+
+
+@pytest.mark.parametrize("field", ["type", "output_type"])
+def test_output_create_shape(http, field):
+    # `type` is canonical; `output_type` is the deprecated alias the API still
+    # accepts. Both must round-trip to the same created record.
+    r = http.post(f"/v2/{_ORG}/outputs", json={field: "dev-null", "name": "sink"})
     assert r.status_code == 200
     _valid(S.OUTPUT, r.json())
+    assert r.json()["type"] == "dev-null"
 
 
 def test_pipeline_lifecycle_shapes(http):

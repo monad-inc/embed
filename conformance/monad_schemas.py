@@ -18,6 +18,11 @@ Notes where the mock encodes reality *beyond* the spec:
   ``null`` (not ``[]``) for a tenant with none, though its spec types it
   ``array``. Live conformance is what proves this, but pinning it here stops the
   mock from regressing to a non-null-emitting shape.
+- ``component_of`` entries are pinned *without* ``status`` or ``nodes``: the
+  datastore projection behind them fills only a subset of ``models.Pipeline``
+  (core/pkg/datastore/postgres/pipelines.go:292), so a router that tried to read
+  a pipeline's wiring straight off ``component_of`` would work against a
+  too-generous mock and fail live.
 """
 
 # POST /v3/sessions — the embed session mint (swagger leaves the body untyped;
@@ -65,6 +70,37 @@ def connectors_list(kind: str) -> dict:
                 },
             },
             "pagination": {"type": "object"},
+        },
+    }
+
+
+def connector_detail(kind: str) -> dict:
+    """GET /v1/{org}/{kind}s/{id} — the connector record plus ``component_of``,
+    the pipelines it is a node of. This is the one call that answers "which
+    pipeline is this connector wired into", so ``component_of`` is required
+    even when empty."""
+    return {
+        "type": "object",
+        "required": ["id", "type", "name", "component_of"],
+        "properties": {
+            "id": {"type": "string"},
+            "type": {"type": "string"},
+            "name": {"type": "string"},
+            "component_of": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["id", "enabled"],
+                    "properties": {
+                        "id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "enabled": {"type": "boolean"},
+                        # Pinned absent — see the module note.
+                        "status": False,
+                        "nodes": False,
+                    },
+                },
+            },
         },
     }
 
