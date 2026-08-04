@@ -214,16 +214,7 @@ export function createEmbedHandler(
 				throw new EmbedError(400, 'invalid_request', "Query 'connectorId' is required.");
 			}
 			const kind = requireKind(req.query.kind, "Query 'kind'");
-			if (kind === 'input') {
-				return json(200, await upstream(monad.pipelineStatus(org, connectorId)));
-			}
-			const r = await upstream(monad.findPipelineByOutput(org, connectorId));
-			return json(200, {
-				hasPipeline: r !== null,
-				enabled: r?.enabled ?? false,
-				pipelineId: r?.pipelineId,
-				inputId: r?.inputId
-			});
+			return json(200, await upstream(monad.pipelineFor(org, kind, connectorId)));
 		}
 
 		if (method === 'POST' && path === '/pipelines/state') {
@@ -241,8 +232,8 @@ export function createEmbedHandler(
 				(req.body as Record<string, unknown> | undefined)?.kind as string | undefined,
 				"Field 'kind'"
 			);
+			const status = await upstream(monad.pipelineFor(org, kind, connectorId));
 			if (kind === 'input') {
-				const status = await upstream(monad.pipelineStatus(org, connectorId));
 				const prov = await provision(org);
 				const keepStore = Boolean(
 					prov.destinationOutputId &&
@@ -257,10 +248,13 @@ export function createEmbedHandler(
 					)
 				);
 			} else {
-				const r = await upstream(monad.findPipelineByOutput(org, connectorId));
 				// Keep the shared source input; remove only the pipeline + output.
 				await upstream(
-					monad.remove(org, { pipelineId: r?.pipelineId, outputId: connectorId }, { input: false })
+					monad.remove(
+						org,
+						{ pipelineId: status.pipelineId, outputId: connectorId },
+						{ input: false }
+					)
 				);
 			}
 			return noContent();
