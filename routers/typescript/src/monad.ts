@@ -117,7 +117,10 @@ export class MonadApi {
 	}
 
 	async listCatalog(kind: ComponentKind, allow?: string[]): Promise<CatalogType[]> {
-		const types = (await this.req(`/v1/${collection(kind)}`)) as { type_id: string; name: string }[];
+		const types = (await this.req(`/v1/${collection(kind)}`)) as {
+			type_id: string;
+			name: string;
+		}[];
 		const list = (types ?? []).map((t) => ({ typeId: t.type_id, name: t.name }));
 		if (!allow || allow.length === 0) return list;
 		const set = new Set(allow);
@@ -239,9 +242,7 @@ export class MonadApi {
 		kind: ComponentKind,
 		connectorId: string
 	): Promise<PipelineStatus> {
-		const connector = await this.req(
-			`/v1/${seg(org)}/${collection(kind)}/${seg(connectorId)}`
-		);
+		const connector = await this.req(`/v1/${seg(org)}/${collection(kind)}/${seg(connectorId)}`);
 		const [pipeline] = (connector?.component_of ?? []) as any[];
 		if (!pipeline?.id) return { hasPipeline: false, enabled: false };
 
