@@ -51,9 +51,18 @@ export interface CleanupPolicy {
 const POLL_ATTEMPTS = 15;
 const POLL_INTERVAL_MS = 2000;
 
+/** Rows per request when draining a Monad list. Monad defaults `limit` to 10
+ *  and enforces no maximum, so this is purely a round-trip/response-size
+ *  trade-off — correctness comes from draining, not from the size. */
+const PAGE_SIZE = 200;
+
 /** URL-encode a single path segment so browser-supplied ids can't inject query
  *  params or traverse the path (`/`, `?`, `#` are neutralised). */
 const seg = (s: string): string => encodeURIComponent(s);
+
+/** The contract's singular `kind` → Monad's collection path segment. Explicit
+ *  rather than `${kind}s`, so the mapping is a fact you can read. */
+const collection = (kind: ComponentKind): string => (kind === 'input' ? 'inputs' : 'outputs');
 
 /**
  * Thrown when a Monad API call fails. Carries the status + internal detail for
@@ -108,20 +117,37 @@ export class MonadApi {
 	}
 
 	async listCatalog(kind: ComponentKind, allow?: string[]): Promise<CatalogType[]> {
-		const types = (await this.req(`/v1/${kind}s`)) as { type_id: string; name: string }[];
-		const list = types.map((t) => ({ typeId: t.type_id, name: t.name }));
+		const types = (await this.req(`/v1/${collection(kind)}`)) as {
+			type_id: string;
+			name: string;
+		}[];
+		const list = (types ?? []).map((t) => ({ typeId: t.type_id, name: t.name }));
 		if (!allow || allow.length === 0) return list;
 		const set = new Set(allow);
 		return list.filter((t) => set.has(t.typeId));
 	}
 
+	/**
+	 * Every configured connector of a kind. Monad pages this at `limit=10` by
+	 * default with no maximum, and the `/embed` contract returns a bare array
+	 * with no pagination — so the router owns draining the pages. Sending one
+	 * large `limit` instead would silently truncate whichever tenant outgrows it.
+	 */
 	async listConnectors(org: string, kind: ComponentKind): Promise<ConfiguredConnector[]> {
-		const page = (await this.req(`/v1/${seg(org)}/${kind}s?limit=1000&offset=0`)) as Record<
-			string,
-			{ id: string; type: string; name: string }[]
-		>;
-		const rows = page?.[`${kind}s`] ?? [];
-		return rows.map((r) => ({ id: r.id, typeId: r.type, name: r.name }));
+		const key = collection(kind);
+		const rows: ConfiguredConnector[] = [];
+		for (let offset = 0; ; offset += PAGE_SIZE) {
+			const page = await this.req(`/v1/${seg(org)}/${key}?limit=${PAGE_SIZE}&offset=${offset}`);
+			// Monad returns `null`, not `[]`, for a page with no rows.
+			const items = (page?.[key] ?? []) as { id: string; type: string; name: string }[];
+			rows.push(...items.map((r) => ({ id: r.id, typeId: r.type, name: r.name })));
+			// A short page is the last page; `total` just lets us stop one round
+			// trip earlier when the count divides evenly.
+			if (items.length < PAGE_SIZE) break;
+			const total = page?.pagination?.total;
+			if (typeof total === 'number' && rows.length >= total) break;
+		}
+		return rows;
 	}
 
 	private async wire(
@@ -167,7 +193,8 @@ export class MonadApi {
 		const output = (await this.req(`/v2/${seg(org)}/outputs`, {
 			method: 'POST',
 			body: JSON.stringify({
-				output_type: 'dev-null',
+				// `type` is the canonical field; `output_type` is a deprecated alias.
+				type: 'dev-null',
 				name: `${name} → /dev/null`,
 				description: 'Auto-created sink for embed pipeline',
 				promise_id: '',
@@ -194,88 +221,56 @@ export class MonadApi {
 		return this.wire(org, opts.fromInputId, opts.outputId, opts.name);
 	}
 
-	private async pipelines(org: string): Promise<any[]> {
-		const listed = await this.req(`/v2/${seg(org)}/pipelines/`);
-		return Array.isArray(listed) ? listed : (listed?.pipelines ?? listed?.data ?? []);
-	}
-
 	private async detail(org: string, id: string): Promise<any> {
-		const d = await this.req(`/v2/${seg(org)}/pipelines/${seg(id)}`);
-		return d?.config ?? d ?? {};
+		return (await this.req(`/v2/${seg(org)}/pipelines/${seg(id)}`)) ?? {};
 	}
 
-	async pipelineStatus(org: string, inputId: string): Promise<PipelineStatus> {
-		for (const summary of await this.pipelines(org)) {
-			if (!summary?.id) continue;
-			let p: any;
-			try {
-				p = await this.detail(org, summary.id);
-			} catch {
-				continue;
-			}
-			const nodes: any[] = p.nodes ?? [];
-			const inNode = nodes.find((n) => n.component_type === 'input' && n.component_id === inputId);
-			if (!inNode) continue;
-			const outNode = nodes.find((n) => n.component_type === 'output');
-			return {
-				hasPipeline: true,
-				enabled: Boolean(p.enabled),
-				pipelineId: summary.id,
-				outputId: outNode?.component_id
-			};
-		}
-		return { hasPipeline: false, enabled: false };
+	/**
+	 * The pipeline a configured connector is wired into.
+	 *
+	 * Monad answers this directly: `GET /v1/{org}/{kind}s/{id}` returns
+	 * `component_of`, the pipelines the component is a node of. Walking the
+	 * org's pipeline list instead would be both O(n) and wrong — that list pages
+	 * at 10, so any pipeline past the first page would read as "not connected".
+	 *
+	 * `component_of` carries no wiring (the datastore fills only a summary
+	 * projection), so resolving the peer connector costs one further fetch.
+	 * Throws `UpstreamError(404)` when the connector itself does not exist.
+	 */
+	async pipelineFor(
+		org: string,
+		kind: ComponentKind,
+		connectorId: string
+	): Promise<PipelineStatus> {
+		const connector = await this.req(`/v1/${seg(org)}/${collection(kind)}/${seg(connectorId)}`);
+		const [pipeline] = (connector?.component_of ?? []) as any[];
+		if (!pipeline?.id) return { hasPipeline: false, enabled: false };
+
+		const peerType = kind === 'input' ? 'output' : 'input';
+		const nodes: any[] = (await this.detail(org, pipeline.id)).nodes ?? [];
+		const peer = nodes.find((n) => n.component_type === peerType)?.component_id;
+
+		return {
+			hasPipeline: true,
+			enabled: Boolean(pipeline.enabled),
+			pipelineId: pipeline.id,
+			...(kind === 'input' ? { outputId: peer } : { inputId: peer })
+		};
 	}
 
-	async findPipelineByOutput(org: string, outputId: string): Promise<PipelineStatus | null> {
-		for (const summary of await this.pipelines(org)) {
-			if (!summary?.id) continue;
-			let p: any;
-			try {
-				p = await this.detail(org, summary.id);
-			} catch {
-				continue;
-			}
-			const nodes: any[] = p.nodes ?? [];
-			const outNode = nodes.find(
-				(n) => n.component_type === 'output' && n.component_id === outputId
-			);
-			if (!outNode) continue;
-			const inNode = nodes.find((n) => n.component_type === 'input');
-			return {
-				hasPipeline: true,
-				enabled: Boolean(p.enabled),
-				pipelineId: summary.id,
-				inputId: inNode?.component_id
-			};
-		}
-		return null;
-	}
-
+	/**
+	 * Flip a pipeline's enabled flag.
+	 *
+	 * `PATCH` is a true partial update: omitted fields keep their stored value
+	 * and the node/edge graph is preserved untouched. Reading the pipeline and
+	 * sending it back would replace the graph with whatever subset of fields the
+	 * round trip happened to reproduce — silently dropping node
+	 * `config_overrides` and edge `schema_detection_spec`.
+	 */
 	async setEnabled(org: string, pipelineId: string, enabled: boolean): Promise<void> {
-		const p = await this.detail(org, pipelineId);
 		await this.req(`/v2/${seg(org)}/pipelines/${seg(pipelineId)}`, {
 			method: 'PATCH',
-			body: JSON.stringify({
-				name: p.name,
-				description: p.description ?? '',
-				enabled,
-				nodes: (p.nodes ?? []).map((n: any) => ({
-					id: n.id,
-					slug: n.slug,
-					component_id: n.component_id,
-					component_type: n.component_type,
-					enabled: n.enabled ?? true
-				})),
-				edges: (p.edges ?? []).map((e: any) => ({
-					name: e.name,
-					description: e.description ?? '',
-					from_node_instance_id: e.from_node_instance_id,
-					to_node_instance_id: e.to_node_instance_id,
-					disabled: e.disabled ?? false,
-					conditions: e.conditions
-				}))
-			})
+			body: JSON.stringify({ enabled })
 		});
 	}
 

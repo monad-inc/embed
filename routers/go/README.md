@@ -69,8 +69,42 @@ r.Any("/embed/*any", gin.WrapH(http.StripPrefix("/embed", h)))
 | `APIKey`                   | Long-lived Monad API key (server-side only).                                                                   |
 | `APIBase`                  | Monad API base. Optional — defaults to `https://app.monad.com/api` (production).                               |
 | `FrameOrigin`              | Iframe origin returned by `GET /embed/config`. Optional — defaults to production.                              |
-| `GetCustomerOrgID`         | Map the authenticated request → the tenant's Monad team id. Return `("", nil)` or an error to reject (→ 401).  |
+| `GetCustomerOrgID`         | **The tenant-isolation boundary** — see below. Return `("", nil)` or an error to reject (→ 401).               |
 | `GetProvisionedComponents` | Per-tenant `Provision{ DestinationOutputID, SourceInputID }`. Nil → ingress uses dev/null, egress unavailable. |
 | `CatalogAllow`             | Restrict the catalog to these connector type ids. Nil → all.                                                   |
+
+### `GetCustomerOrgID` is a security boundary
+
+This callback is the only thing standing between one of your tenants and
+another's data. The router holds a Monad API key with access to every
+organization your key can reach; whatever org id this returns is the org the
+request then reads, writes and deletes in. Get it wrong and you serve tenant A
+the pipelines of tenant B.
+
+So derive the org **from your own authenticated session** — the thing your auth
+middleware already verified:
+
+```go
+GetCustomerOrgID: func(r *http.Request) (string, error) {
+    user, ok := auth.FromContext(r.Context()) // set by your auth middleware
+    if !ok {
+        return "", errors.New("not signed in")
+    }
+    return user.MonadOrgID, nil // your tenant → Monad org mapping
+}
+```
+
+Never take it from anything the caller controls — a header, a query param, a
+request body field, or a client-supplied JWT claim you have not verified. Those
+are all attacker-chosen values, and the router will use them verbatim.
+
+Mount the router behind your auth middleware; it performs no authentication of
+its own beyond calling this hook, and treats `("", nil)` or a non-nil error as
+`401`.
+
+You own this mapping because only you can know it: Monad has no endpoint that
+turns your product's bearer token into an org id. (`GET /v1/organizations` maps
+a _Monad API key_ to the orgs it can reach — not your user to their tenant.)
+Store the tenant → org id association when you provision the tenant.
 
 Zero external dependencies. `go test ./...`, `go vet ./...`, `gofmt` clean.

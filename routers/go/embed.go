@@ -20,6 +20,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 )
 
 // Provision is what the host pre-provisions per tenant, resolved server-side —
@@ -260,13 +261,7 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var ps PipelineStatus
-	var err error
-	if kind == "input" {
-		ps, err = h.c.statusByInput(r.Context(), org, connectorID)
-	} else {
-		ps, err = h.c.findByOutput(r.Context(), org, connectorID)
-	}
+	ps, err := h.c.pipelineFor(r.Context(), org, kind, connectorID)
 	if err != nil {
 		upstream(w, err)
 		return
@@ -321,44 +316,36 @@ func (h *handler) remove(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	if kind == "input" {
-		ps, err := h.c.statusByInput(ctx, org, body.ConnectorID)
-		if err != nil {
+	ps, err := h.c.pipelineFor(ctx, org, kind, body.ConnectorID)
+	if err != nil {
+		upstream(w, err)
+		return
+	}
+	if ps.PipelineID != "" {
+		if err := h.c.del(ctx, "/v2/"+url.PathEscape(org)+"/pipelines/"+url.PathEscape(ps.PipelineID)); err != nil {
 			upstream(w, err)
 			return
 		}
+	}
+
+	if kind == kindInput {
+		if err := h.c.del(ctx, "/v1/"+url.PathEscape(org)+"/inputs/"+url.PathEscape(body.ConnectorID)); err != nil {
+			upstream(w, err)
+			return
+		}
+		// The tenant's provisioned store is shared; only a sink this pipeline
+		// created on the fly gets torn down with it.
 		prov := h.prov(org)
-		keepStore := prov.DestinationOutputID != "" && ps.OutputID != "" && prov.DestinationOutputID == ps.OutputID
-		if ps.PipelineID != "" {
-			if err := h.c.del(ctx, "/v2/"+esc(org)+"/pipelines/"+esc(ps.PipelineID)); err != nil {
-				upstream(w, err)
-				return
-			}
-		}
-		if err := h.c.del(ctx, "/v1/"+esc(org)+"/inputs/"+esc(body.ConnectorID)); err != nil {
-			upstream(w, err)
-			return
-		}
+		keepStore := prov.DestinationOutputID != "" && prov.DestinationOutputID == ps.OutputID
 		if ps.OutputID != "" && !keepStore {
-			if err := h.c.del(ctx, "/v1/"+esc(org)+"/outputs/"+esc(ps.OutputID)); err != nil {
+			if err := h.c.del(ctx, "/v1/"+url.PathEscape(org)+"/outputs/"+url.PathEscape(ps.OutputID)); err != nil {
 				upstream(w, err)
 				return
 			}
 		}
 	} else {
-		ps, err := h.c.findByOutput(ctx, org, body.ConnectorID)
-		if err != nil {
-			upstream(w, err)
-			return
-		}
-		if ps.PipelineID != "" {
-			if err := h.c.del(ctx, "/v2/"+esc(org)+"/pipelines/"+esc(ps.PipelineID)); err != nil {
-				upstream(w, err)
-				return
-			}
-		}
 		// Keep the shared source input; remove only the user's output.
-		if err := h.c.del(ctx, "/v1/"+esc(org)+"/outputs/"+esc(body.ConnectorID)); err != nil {
+		if err := h.c.del(ctx, "/v1/"+url.PathEscape(org)+"/outputs/"+url.PathEscape(body.ConnectorID)); err != nil {
 			upstream(w, err)
 			return
 		}
@@ -392,12 +379,15 @@ func (h *handler) prov(org string) Provision {
 	return Provision{}
 }
 
-func kindQuery(w http.ResponseWriter, value string) (string, bool) {
-	if value != "input" && value != "output" {
-		writeErr(w, http.StatusBadRequest, "invalid_request", "'kind' must be 'input' or 'output'.")
-		return "", false
+// kindQuery is the single place a request's `kind` becomes a componentKind —
+// anything else is rejected before it can reach a Monad path.
+func kindQuery(w http.ResponseWriter, value string) (componentKind, bool) {
+	switch componentKind(value) {
+	case kindInput, kindOutput:
+		return componentKind(value), true
 	}
-	return value, true
+	writeErr(w, http.StatusBadRequest, "invalid_request", "'kind' must be 'input' or 'output'.")
+	return "", false
 }
 
 func requireStr(w http.ResponseWriter, value, field string) bool {
