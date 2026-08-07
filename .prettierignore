@@ -6,3 +6,8 @@ CHANGELOG.md
 LICENSE
 NOTICE
 .github/CODEOWNERS
+
+# Python harness tooling (conformance venv + caches) — not ours to format
+**/.venv
+**/.pytest_cache
+**/__pycache__

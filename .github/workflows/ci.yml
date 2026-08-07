@@ -44,3 +44,35 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run test
       - run: pnpm run build
+
+  conformance:
+    name: Conformance (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the TS router
+        run: pnpm -C routers/typescript build
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Set up the conformance harness
+        working-directory: conformance
+        run: |
+          uv venv --python 3.10 .venv
+          uv pip install --python .venv/bin/python schemathesis pytest httpx jsonschema
+
+      - name: Run conformance against the TS router
+        working-directory: conformance
+        env:
+          ROUTER: ts
+        run: .venv/bin/python -m pytest -q
