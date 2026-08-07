@@ -46,22 +46,35 @@ jobs:
       - run: pnpm run build
 
   conformance:
-    name: Conformance (ts)
+    name: Conformance (${{ matrix.router }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        router: [ts, go]
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
+        if: matrix.router == 'ts'
 
       - uses: actions/setup-node@v4
+        if: matrix.router == 'ts'
         with:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-
       - name: Build the TS router
-        run: pnpm -C routers/typescript build
+        if: matrix.router == 'ts'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -C routers/typescript build
+
+      - name: Set up Go
+        if: matrix.router == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
 
       - uses: astral-sh/setup-uv@v5
 
@@ -71,8 +84,8 @@ jobs:
           uv venv --python 3.10 .venv
           uv pip install --python .venv/bin/python schemathesis pytest httpx jsonschema
 
-      - name: Run conformance against the TS router
+      - name: Run conformance (${{ matrix.router }})
         working-directory: conformance
         env:
-          ROUTER: ts
+          ROUTER: ${{ matrix.router }}
         run: .venv/bin/python -m pytest -q
