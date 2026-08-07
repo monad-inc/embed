@@ -25,11 +25,22 @@ from .models import (
 _POLL_ATTEMPTS = 15
 _POLL_INTERVAL = 2.0
 
+# Rows per request when draining a Monad list. Monad defaults ``limit`` to 10
+# and enforces no maximum, so this is a round-trip/response-size trade-off only:
+# correctness comes from draining every page.
+_PAGE_SIZE = 200
+
 
 def _seg(value: Any) -> str:
     """URL-encode a single path segment so browser-supplied ids can't inject
     query params or traverse the path (``/``, ``?``, ``#`` are neutralised)."""
     return quote(str(value), safe="")
+
+
+def _collection(kind: str) -> str:
+    """The contract's singular ``kind`` → Monad's collection path segment.
+    Spelled out rather than appending "s", so the mapping is a fact."""
+    return "inputs" if kind == "input" else "outputs"
 
 
 class MonadClient:
@@ -79,7 +90,7 @@ class MonadClient:
         self, kind: str, allow: Optional[list[str]]
     ) -> list[CatalogType]:
         async with self._open() as c:
-            data = await self._do(c, "GET", f"/v1/{kind}s")
+            data = await self._do(c, "GET", f"/v1/{_collection(kind)}")
         allow_set = set(allow) if allow else None
         out: list[CatalogType] = []
         for t in data or []:
@@ -89,14 +100,36 @@ class MonadClient:
         return out
 
     async def list_connectors(self, org: str, kind: str) -> list[ConfiguredConnector]:
+        """Every connector of a kind the tenant has configured.
+
+        Monad pages this at ``limit=10`` by default with no maximum, and the
+        ``/embed`` contract returns a bare array with no pagination — so
+        draining the pages is the router's job. One large ``limit`` instead
+        would silently truncate whichever tenant outgrows it.
+        """
+        key = _collection(kind)
+        out: list[ConfiguredConnector] = []
         async with self._open() as c:
-            page = await self._do(c, "GET", f"/v1/{_seg(org)}/{kind}s?limit=1000&offset=0")
-        # Monad returns the list as null (not []) when a tenant has none, so
-        # coalesce with `or []` — a bare .get(key, []) would return that null.
-        rows = (page or {}).get(f"{kind}s") or []
-        return [
-            ConfiguredConnector(id=r["id"], typeId=r["type"], name=r["name"]) for r in rows
-        ]
+            offset = 0
+            while True:
+                page = await self._do(
+                    c, "GET", f"/v1/{_seg(org)}/{key}?limit={_PAGE_SIZE}&offset={offset}"
+                )
+                # Monad returns the list as null (not []) for an empty page, so
+                # coalesce with `or []` — a bare .get(key, []) would return null.
+                rows = (page or {}).get(key) or []
+                out.extend(
+                    ConfiguredConnector(id=r["id"], typeId=r["type"], name=r["name"])
+                    for r in rows
+                )
+                # A short page is the last page; `total` only lets us stop one
+                # round trip earlier when the count divides evenly.
+                if len(rows) < _PAGE_SIZE:
+                    return out
+                total = ((page or {}).get("pagination") or {}).get("total")
+                if isinstance(total, int) and len(out) >= total:
+                    return out
+                offset += _PAGE_SIZE
 
     async def wire_pipeline(
         self, org: str, input_id: str, output_id: str, name: str
@@ -139,7 +172,8 @@ class MonadClient:
                 "POST",
                 f"/v2/{_seg(org)}/outputs",
                 {
-                    "output_type": "dev-null",
+                    # `type` is canonical; `output_type` is a deprecated alias.
+                    "type": "dev-null",
                     "name": f"{name} → /dev/null",
                     "description": "Auto-created sink for embed pipeline",
                     "promise_id": "",
@@ -148,107 +182,62 @@ class MonadClient:
             )
         return await self.wire_pipeline(org, input_id, out["id"], name)
 
-    async def _list_pipelines(self, c: httpx.AsyncClient, org: str) -> list[dict]:
-        data = await self._do(c, "GET", f"/v2/{_seg(org)}/pipelines/")
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            return data.get("pipelines") or data.get("data") or []
-        return []
-
-    async def _get_pipeline(self, c: httpx.AsyncClient, org: str, pid: str) -> dict:
+    async def _pipeline_nodes(self, c: httpx.AsyncClient, org: str, pid: str) -> list[dict]:
+        """A pipeline's wiring. The detail response is flat — the nodes sit at
+        the top level, not under a ``config`` envelope."""
         data = await self._do(c, "GET", f"/v2/{_seg(org)}/pipelines/{_seg(pid)}")
-        if isinstance(data, dict):
-            return data.get("config") or data
-        return {}
+        return (data or {}).get("nodes") or []
 
-    async def status_by_input(self, org: str, input_id: str) -> PipelineStatus:
-        async with self._open() as c:
-            for summary in await self._list_pipelines(c, org):
-                pid = summary.get("id")
-                if not pid:
-                    continue
-                try:
-                    p = await self._get_pipeline(c, org, pid)
-                except MonadError:
-                    continue
-                nodes = p.get("nodes") or []
-                in_node = next(
-                    (n for n in nodes if n.get("component_type") == "input" and n.get("component_id") == input_id),
-                    None,
-                )
-                if in_node is None:
-                    continue
-                out_node = next((n for n in nodes if n.get("component_type") == "output"), None)
-                return PipelineStatus(
-                    hasPipeline=True,
-                    enabled=bool(p.get("enabled")),
-                    pipelineId=pid,
-                    outputId=out_node.get("component_id") if out_node else None,
-                )
-        return PipelineStatus(hasPipeline=False, enabled=False)
+    async def pipeline_for(self, org: str, kind: str, connector_id: str) -> PipelineStatus:
+        """The pipeline a configured connector is wired into.
 
-    async def find_by_output(self, org: str, output_id: str) -> PipelineStatus:
+        Monad answers this directly: ``GET /v1/{org}/{kind}s/{id}`` returns
+        ``component_of``, the pipelines the component is a node of. Walking the
+        org's pipeline list instead would be both O(n) and wrong — that list
+        pages at 10, so any pipeline past the first page would read as "not
+        connected".
+
+        ``component_of`` carries no wiring (the datastore fills only a summary
+        projection), so resolving the peer connector costs one further fetch.
+        Raises :class:`MonadError` with status 404 when the connector is gone.
+        """
         async with self._open() as c:
-            for summary in await self._list_pipelines(c, org):
-                pid = summary.get("id")
-                if not pid:
-                    continue
-                try:
-                    p = await self._get_pipeline(c, org, pid)
-                except MonadError:
-                    continue
-                nodes = p.get("nodes") or []
-                out_node = next(
-                    (n for n in nodes if n.get("component_type") == "output" and n.get("component_id") == output_id),
-                    None,
-                )
-                if out_node is None:
-                    continue
-                in_node = next((n for n in nodes if n.get("component_type") == "input"), None)
-                return PipelineStatus(
-                    hasPipeline=True,
-                    enabled=bool(p.get("enabled")),
-                    pipelineId=pid,
-                    inputId=in_node.get("component_id") if in_node else None,
-                )
-        return PipelineStatus(hasPipeline=False, enabled=False)
+            connector = await self._do(
+                c, "GET", f"/v1/{_seg(org)}/{_collection(kind)}/{_seg(connector_id)}"
+            )
+            pipelines = (connector or {}).get("component_of") or []
+            if not pipelines or not pipelines[0].get("id"):
+                return PipelineStatus(hasPipeline=False, enabled=False)
+
+            pipeline = pipelines[0]
+            peer_type = "output" if kind == "input" else "input"
+            nodes = await self._pipeline_nodes(c, org, pipeline["id"])
+            peer = next((n for n in nodes if n.get("component_type") == peer_type), None)
+            peer_id = peer.get("component_id") if peer else None
+
+        return PipelineStatus(
+            hasPipeline=True,
+            enabled=bool(pipeline.get("enabled")),
+            pipelineId=pipeline["id"],
+            outputId=peer_id if kind == "input" else None,
+            inputId=peer_id if kind == "output" else None,
+        )
 
     async def set_enabled(self, org: str, pipeline_id: str, enabled: bool) -> None:
+        """Flip a pipeline's enabled flag.
+
+        ``PATCH`` is a true partial update: omitted fields keep their stored
+        value and the node/edge graph is preserved untouched. Reading the
+        pipeline and sending it back would replace the graph with whatever
+        subset of fields the round trip happened to reproduce — silently
+        dropping node ``config_overrides`` and edge ``schema_detection_spec``.
+        """
         async with self._open() as c:
-            p = await self._get_pipeline(c, org, pipeline_id)
-            nodes = [
-                {
-                    "id": n.get("id"),
-                    "slug": n.get("slug"),
-                    "component_id": n.get("component_id"),
-                    "component_type": n.get("component_type"),
-                    "enabled": n.get("enabled", True),
-                }
-                for n in (p.get("nodes") or [])
-            ]
-            edges = [
-                {
-                    "name": e.get("name"),
-                    "description": e.get("description", ""),
-                    "from_node_instance_id": e.get("from_node_instance_id"),
-                    "to_node_instance_id": e.get("to_node_instance_id"),
-                    "disabled": e.get("disabled", False),
-                    "conditions": e.get("conditions"),
-                }
-                for e in (p.get("edges") or [])
-            ]
             await self._do(
                 c,
                 "PATCH",
                 f"/v2/{_seg(org)}/pipelines/{_seg(pipeline_id)}",
-                {
-                    "name": p.get("name"),
-                    "description": p.get("description", ""),
-                    "enabled": enabled,
-                    "nodes": nodes,
-                    "edges": edges,
-                },
+                {"enabled": enabled},
             )
 
     async def delete(self, path: str) -> None:

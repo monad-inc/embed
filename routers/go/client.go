@@ -32,9 +32,28 @@ func newClient(cfg Config) *client {
 	}
 }
 
-// esc URL-encodes a single path segment so browser-supplied ids can't inject
-// query params or traverse the path (`/`, `?`, `#` are neutralised).
-var esc = url.PathEscape
+// componentKind is the contract's `kind` — the only two values any /embed route
+// accepts. Mirrors the ComponentKind enum in embed.openapi.yaml.
+type componentKind string
+
+const (
+	kindInput  componentKind = "input"
+	kindOutput componentKind = "output"
+)
+
+// collection is the Monad path segment for a kind. Spelled out rather than
+// appending "s", so the mapping is a fact rather than a coincidence of English.
+func (k componentKind) collection() string {
+	if k == kindInput {
+		return "inputs"
+	}
+	return "outputs"
+}
+
+// pageSize is how many rows to request when draining a Monad list. Monad
+// defaults `limit` to 10 and enforces no maximum, so this is a round-trip /
+// response-size trade-off only: correctness comes from draining every page.
+const pageSize = 200
 
 // upstreamError carries a failed Monad call's status + detail. The router maps
 // the status onto the contract's error model (404→not_found, 409→conflict,
@@ -101,8 +120,8 @@ func (c *client) mintSession(ctx context.Context, org string) (Session, error) {
 	return Session{SessionToken: out.SessionToken, OrganizationID: org, ExpiresAt: out.ExpiresAt}, nil
 }
 
-func (c *client) listCatalog(ctx context.Context, kind string, allow []string) ([]CatalogType, error) {
-	data, err := c.do(ctx, "GET", "/v1/"+kind+"s", nil)
+func (c *client) listCatalog(ctx context.Context, kind componentKind, allow []string) ([]CatalogType, error) {
+	data, err := c.do(ctx, "GET", "/v1/"+kind.collection(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -130,34 +149,57 @@ func (c *client) listCatalog(ctx context.Context, kind string, allow []string) (
 	return out, nil
 }
 
-func (c *client) listConnectors(ctx context.Context, org, kind string) ([]ConfiguredConnector, error) {
-	data, err := c.do(ctx, "GET", "/v1/"+esc(org)+"/"+kind+"s?limit=1000&offset=0", nil)
-	if err != nil {
-		return nil, err
-	}
-	// Rows come wrapped as { inputs: [...] } / { outputs: [...] } alongside other
-	// keys (e.g. a `pagination` object). Decode only the connector array for this
-	// kind so sibling keys don't force a type mismatch; carry the type slug as
-	// `type`, normalized to typeId for the /embed contract.
-	var page map[string]json.RawMessage
-	if err := json.Unmarshal(data, &page); err != nil {
-		return nil, err
-	}
-	var rows []struct {
-		ID   string `json:"id"`
-		Type string `json:"type"`
-		Name string `json:"name"`
-	}
-	if raw, ok := page[kind+"s"]; ok {
-		if err := json.Unmarshal(raw, &rows); err != nil {
+// listConnectors returns every connector of a kind the tenant has configured.
+//
+// Monad pages this at limit=10 by default with no maximum, and the /embed
+// contract returns a bare array with no pagination — so draining the pages is
+// the router's job. A single large limit instead would silently truncate
+// whichever tenant outgrows it.
+func (c *client) listConnectors(ctx context.Context, org string, kind componentKind) ([]ConfiguredConnector, error) {
+	key := kind.collection()
+	out := []ConfiguredConnector{}
+	for offset := 0; ; offset += pageSize {
+		path := fmt.Sprintf("/v1/%s/%s?limit=%d&offset=%d", url.PathEscape(org), key, pageSize, offset)
+		data, err := c.do(ctx, "GET", path, nil)
+		if err != nil {
 			return nil, err
 		}
+		// Rows come wrapped as { inputs: [...] } / { outputs: [...] } alongside a
+		// `pagination` object. Decode only the connector array for this kind so
+		// the sibling can't force a type mismatch; the array is `null`, not `[]`,
+		// when the page is empty.
+		var page map[string]json.RawMessage
+		if err := json.Unmarshal(data, &page); err != nil {
+			return nil, err
+		}
+		var rows []struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+			Name string `json:"name"`
+		}
+		if raw, ok := page[key]; ok {
+			if err := json.Unmarshal(raw, &rows); err != nil {
+				return nil, err
+			}
+		}
+		for _, r := range rows {
+			// Monad names the type slug `type` here; the contract calls it typeId.
+			out = append(out, ConfiguredConnector{ID: r.ID, TypeID: r.Type, Name: r.Name})
+		}
+		// A short page is the last page. `total` only lets us stop one round trip
+		// earlier when the count happens to divide evenly.
+		if len(rows) < pageSize {
+			return out, nil
+		}
+		var pg struct {
+			Total int `json:"total"`
+		}
+		if raw, ok := page["pagination"]; ok {
+			if err := json.Unmarshal(raw, &pg); err == nil && pg.Total > 0 && len(out) >= pg.Total {
+				return out, nil
+			}
+		}
 	}
-	out := []ConfiguredConnector{}
-	for _, r := range rows {
-		out = append(out, ConfiguredConnector{ID: r.ID, TypeID: r.Type, Name: r.Name})
-	}
-	return out, nil
 }
 
 type wireNode struct {
@@ -185,7 +227,7 @@ func (c *client) wirePipeline(ctx context.Context, org, inputID, outputID, name 
 			"conditions":            map[string]any{"operator": "always"},
 		}},
 	}
-	data, err := c.do(ctx, "POST", "/v2/"+esc(org)+"/pipelines/", body)
+	data, err := c.do(ctx, "POST", "/v2/"+url.PathEscape(org)+"/pipelines/", body)
 	if err != nil {
 		return BuiltPipeline{}, err
 	}
@@ -198,7 +240,7 @@ func (c *client) wirePipeline(ctx context.Context, org, inputID, outputID, name 
 
 	status := "Pending"
 	for i := 0; i < c.pollAttempts; i++ {
-		sd, err := c.do(ctx, "GET", "/v2/"+esc(org)+"/pipelines/"+esc(created.ID)+"/status", nil)
+		sd, err := c.do(ctx, "GET", "/v2/"+url.PathEscape(org)+"/pipelines/"+url.PathEscape(created.ID)+"/status", nil)
 		if err != nil {
 			return BuiltPipeline{}, err
 		}
@@ -222,8 +264,9 @@ func (c *client) wirePipeline(ctx context.Context, org, inputID, outputID, name 
 
 // buildDevNull creates a throwaway dev/null output, then wires the input to it.
 func (c *client) buildDevNull(ctx context.Context, org, inputID, name string) (BuiltPipeline, error) {
-	data, err := c.do(ctx, "POST", "/v2/"+esc(org)+"/outputs", map[string]any{
-		"output_type": "dev-null",
+	data, err := c.do(ctx, "POST", "/v2/"+url.PathEscape(org)+"/outputs", map[string]any{
+		// `type` is the canonical field; `output_type` is a deprecated alias.
+		"type":        "dev-null",
 		"name":        name + " → /dev/null",
 		"description": "Auto-created sink for embed pipeline",
 		"promise_id":  "",
@@ -241,186 +284,90 @@ func (c *client) buildDevNull(ctx context.Context, org, inputID, name string) (B
 	return c.wirePipeline(ctx, org, inputID, out.ID, name)
 }
 
-type pipeSummary struct {
-	ID string `json:"id"`
-}
-
-type nodeFull struct {
-	ID            string `json:"id"`
-	Slug          string `json:"slug"`
+type pipeNode struct {
 	ComponentID   string `json:"component_id"`
 	ComponentType string `json:"component_type"`
-	Enabled       *bool  `json:"enabled"`
 }
 
-type edgeFull struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	From        string          `json:"from_node_instance_id"`
-	To          string          `json:"to_node_instance_id"`
-	Disabled    *bool           `json:"disabled"`
-	Conditions  json.RawMessage `json:"conditions"`
-}
-
-type pipeBody struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Enabled     bool       `json:"enabled"`
-	Nodes       []nodeFull `json:"nodes"`
-	Edges       []edgeFull `json:"edges"`
-}
-
-// pipeDetail handles both the wrapped ({ config: {...} }) and flat detail shapes.
-type pipeDetail struct {
-	Config *pipeBody `json:"config"`
-	pipeBody
-}
-
-func (c *client) listPipelines(ctx context.Context, org string) ([]pipeSummary, error) {
-	data, err := c.do(ctx, "GET", "/v2/"+esc(org)+"/pipelines/", nil)
+// pipelineNodes reads a pipeline's wiring. The detail response is flat — the
+// nodes sit at the top level, not under a `config` envelope.
+func (c *client) pipelineNodes(ctx context.Context, org, pipelineID string) ([]pipeNode, error) {
+	data, err := c.do(ctx, "GET", "/v2/"+url.PathEscape(org)+"/pipelines/"+url.PathEscape(pipelineID), nil)
 	if err != nil {
 		return nil, err
 	}
-	var arr []pipeSummary
-	if json.Unmarshal(data, &arr) == nil && len(arr) > 0 {
-		return arr, nil
+	var detail struct {
+		Nodes []pipeNode `json:"nodes"`
 	}
-	var obj struct {
-		Pipelines []pipeSummary `json:"pipelines"`
-		Data      []pipeSummary `json:"data"`
-	}
-	if err := json.Unmarshal(data, &obj); err != nil {
+	if err := json.Unmarshal(data, &detail); err != nil {
 		return nil, err
 	}
-	if len(obj.Pipelines) > 0 {
-		return obj.Pipelines, nil
-	}
-	return obj.Data, nil
+	return detail.Nodes, nil
 }
 
-func (c *client) getPipeline(ctx context.Context, org, id string) (*pipeBody, error) {
-	data, err := c.do(ctx, "GET", "/v2/"+esc(org)+"/pipelines/"+esc(id), nil)
-	if err != nil {
-		return nil, err
-	}
-	var d pipeDetail
-	if err := json.Unmarshal(data, &d); err != nil {
-		return nil, err
-	}
-	if d.Config != nil {
-		return d.Config, nil
-	}
-	b := d.pipeBody
-	return &b, nil
-}
-
-// statusByInput resolves the pipeline an input feeds, knowing only the input id.
-func (c *client) statusByInput(ctx context.Context, org, inputID string) (PipelineStatus, error) {
-	sums, err := c.listPipelines(ctx, org)
+// pipelineFor resolves the pipeline a configured connector is wired into.
+//
+// Monad answers this directly: GET /v1/{org}/{kind}s/{id} returns
+// `component_of`, the pipelines the component is a node of. Walking the org's
+// pipeline list instead would be both O(n) and wrong — that list pages at 10,
+// so any pipeline past the first page would read as "not connected".
+//
+// `component_of` carries no wiring (the datastore fills only a summary
+// projection), so resolving the peer connector costs one further fetch.
+// Returns an upstreamError with status 404 when the connector does not exist.
+func (c *client) pipelineFor(ctx context.Context, org string, kind componentKind, connectorID string) (PipelineStatus, error) {
+	data, err := c.do(ctx, "GET",
+		"/v1/"+url.PathEscape(org)+"/"+kind.collection()+"/"+url.PathEscape(connectorID), nil)
 	if err != nil {
 		return PipelineStatus{}, err
 	}
-	for _, s := range sums {
-		if s.ID == "" {
-			continue
-		}
-		body, err := c.getPipeline(ctx, org, s.ID)
-		if err != nil {
-			continue
-		}
-		var inNode, outNode *nodeFull
-		for i := range body.Nodes {
-			n := &body.Nodes[i]
-			if n.ComponentType == "input" && n.ComponentID == inputID {
-				inNode = n
-			}
-			if n.ComponentType == "output" {
-				outNode = n
-			}
-		}
-		if inNode == nil {
-			continue
-		}
-		ps := PipelineStatus{HasPipeline: true, Enabled: body.Enabled, PipelineID: s.ID}
-		if outNode != nil {
-			ps.OutputID = outNode.ComponentID
-		}
-		return ps, nil
+	var connector struct {
+		ComponentOf []struct {
+			ID      string `json:"id"`
+			Enabled bool   `json:"enabled"`
+		} `json:"component_of"`
 	}
-	return PipelineStatus{HasPipeline: false}, nil
-}
+	if err := json.Unmarshal(data, &connector); err != nil {
+		return PipelineStatus{}, err
+	}
+	if len(connector.ComponentOf) == 0 || connector.ComponentOf[0].ID == "" {
+		return PipelineStatus{HasPipeline: false}, nil
+	}
+	p := connector.ComponentOf[0]
+	ps := PipelineStatus{HasPipeline: true, Enabled: p.Enabled, PipelineID: p.ID}
 
-// findByOutput resolves the pipeline feeding an output — the egress counterpart.
-func (c *client) findByOutput(ctx context.Context, org, outputID string) (PipelineStatus, error) {
-	sums, err := c.listPipelines(ctx, org)
+	peer := kindOutput
+	if kind == kindOutput {
+		peer = kindInput
+	}
+	nodes, err := c.pipelineNodes(ctx, org, p.ID)
 	if err != nil {
 		return PipelineStatus{}, err
 	}
-	for _, s := range sums {
-		if s.ID == "" {
+	for _, n := range nodes {
+		if n.ComponentType != string(peer) {
 			continue
 		}
-		body, err := c.getPipeline(ctx, org, s.ID)
-		if err != nil {
-			continue
+		if kind == kindInput {
+			ps.OutputID = n.ComponentID
+		} else {
+			ps.InputID = n.ComponentID
 		}
-		var inNode, outNode *nodeFull
-		for i := range body.Nodes {
-			n := &body.Nodes[i]
-			if n.ComponentType == "output" && n.ComponentID == outputID {
-				outNode = n
-			}
-			if n.ComponentType == "input" {
-				inNode = n
-			}
-		}
-		if outNode == nil {
-			continue
-		}
-		ps := PipelineStatus{HasPipeline: true, Enabled: body.Enabled, PipelineID: s.ID}
-		if inNode != nil {
-			ps.InputID = inNode.ComponentID
-		}
-		return ps, nil
+		break
 	}
-	return PipelineStatus{HasPipeline: false}, nil
+	return ps, nil
 }
 
-// setEnabled flips the pipeline's enabled flag. The PATCH endpoint replaces the
-// whole config, so this reads the current pipeline and sends it back unchanged
-// except for the flag.
+// setEnabled flips the pipeline's enabled flag.
+//
+// PATCH is a true partial update: omitted fields keep their stored value and
+// the node/edge graph is preserved untouched. Reading the pipeline and sending
+// it back would replace the graph with whatever subset of fields the round trip
+// happened to reproduce — silently dropping node `config_overrides` and edge
+// `schema_detection_spec`.
 func (c *client) setEnabled(ctx context.Context, org, pipelineID string, enabled bool) error {
-	body, err := c.getPipeline(ctx, org, pipelineID)
-	if err != nil {
-		return err
-	}
-	nodes := make([]map[string]any, 0, len(body.Nodes))
-	for _, n := range body.Nodes {
-		en := true
-		if n.Enabled != nil {
-			en = *n.Enabled
-		}
-		nodes = append(nodes, map[string]any{
-			"id": n.ID, "slug": n.Slug, "component_id": n.ComponentID,
-			"component_type": n.ComponentType, "enabled": en,
-		})
-	}
-	edges := make([]map[string]any, 0, len(body.Edges))
-	for _, e := range body.Edges {
-		dis := false
-		if e.Disabled != nil {
-			dis = *e.Disabled
-		}
-		edges = append(edges, map[string]any{
-			"name": e.Name, "description": e.Description,
-			"from_node_instance_id": e.From, "to_node_instance_id": e.To,
-			"disabled": dis, "conditions": e.Conditions,
-		})
-	}
-	_, err = c.do(ctx, "PATCH", "/v2/"+esc(org)+"/pipelines/"+esc(pipelineID), map[string]any{
-		"name": body.Name, "description": body.Description, "enabled": enabled,
-		"nodes": nodes, "edges": edges,
-	})
+	_, err := c.do(ctx, "PATCH", "/v2/"+url.PathEscape(org)+"/pipelines/"+url.PathEscape(pipelineID),
+		map[string]any{"enabled": enabled})
 	return err
 }
 
