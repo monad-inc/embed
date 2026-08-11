@@ -71,7 +71,9 @@ function captureInit(
 	);
 
 	expect(postSpy).toHaveBeenCalledTimes(1);
-	return { init: postSpy.mock.calls[0][0] as InitMessage, postSpy };
+	const [firstCall] = postSpy.mock.calls;
+	if (!firstCall) throw new Error('host never posted init');
+	return { init: firstCall[0] as InitMessage, postSpy };
 }
 
 describe('createConnectorFrame init payload', () => {
