@@ -220,7 +220,7 @@ configMetaOverrides: {
 A field's type, whether it is required, its allowed values, and its
 default are fixed by the connector and cannot be overridden. Some
 controls have nowhere to show a placeholder — dropdowns, checkboxes, and
-code editors ignore it. If you need a field to *behave* differently,
+code editors ignore it. If you need a field to _behave_ differently,
 that's a change to the connector itself; file an issue.
 
 ---

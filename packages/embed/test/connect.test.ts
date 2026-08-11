@@ -39,9 +39,10 @@ afterEach(() => {
  * iframe it created, so the synthetic event has to carry the real
  * contentWindow — a plain `window.postMessage` would be dropped.
  */
-function captureInit(
-	overrides?: ConfigMetaOverrides
-): { init: InitMessage; postSpy: ReturnType<typeof vi.fn> } {
+function captureInit(overrides?: ConfigMetaOverrides): {
+	init: InitMessage;
+	postSpy: ReturnType<typeof vi.fn>;
+} {
 	frame = createConnectorFrame({
 		container,
 		frameOrigin: FRAME_ORIGIN,

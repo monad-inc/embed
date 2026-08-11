@@ -1,5 +1,5 @@
 ---
-"@monad-inc/embed": minor
+'@monad-inc/embed': minor
 ---
 
 Add `configMetaOverrides` for customizing connector field copy.
