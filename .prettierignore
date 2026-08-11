@@ -6,3 +6,10 @@ CHANGELOG.md
 LICENSE
 NOTICE
 .github/CODEOWNERS
+
+# Local artifacts from running the Python conformance suite. Untracked, so CI
+# never sees them, but without this a local `pnpm format:check` reports dozens
+# of failures from site-packages.
+**/.venv
+**/.pytest_cache
+**/__pycache__

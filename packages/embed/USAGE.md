@@ -119,6 +119,8 @@ controls the surrounding chrome.
 | `isNameEditable`        | `boolean`                    | ⛔       | `false`                          | Show an editable name input in the iframe (prefilled with `name` if provided, else the type name). A non-empty name is required when shown. |
 | `isDescriptionEditable` | `boolean`                    | ⛔       | `false`                          | Show an editable description input in the iframe (prefilled with `description` if provided).                                                |
 | `appearance`            | `Appearance`                 | ⛔       | Monad defaults                   | Theming tokens (see below).                                                                                                                 |
+| `stylesheets`           | `string[]`                   | ⛔       | Monad's built-in stylesheet      | Your own stylesheet URLs. All-or-nothing: if set, Monad's defaults are not loaded (see below).                                              |
+| `configMetaOverrides`   | `ConfigMetaOverrides`        | ⛔       | the connector's own copy         | Per-field label / description / placeholder overrides (see below).                                                                          |
 | `synthetic`             | `boolean`                    | ⛔       | `false`                          | Exposes Monad's internal synthetic-data toggle. Keep off in production.                                                                     |
 | `frameOrigin`           | `string`                     | ⛔       | `https://app.monad.com/embed`    | Override only for non-prod testing.                                                                                                         |
 | `apiBase`               | `string`                     | ⛔       | `https://app.monad.com/api`      | Override only for non-prod testing.                                                                                                         |
@@ -156,6 +158,70 @@ createConnectorFrame({
 These are the only theming knobs. The iframe runs cross-origin, so
 your stylesheets cannot bleed in — by design. If you need more
 control than these six tokens give, file an issue.
+
+---
+
+## Customizing field copy with `configMetaOverrides`
+
+Every connector ships its own field labels, descriptions, and
+placeholders. `configMetaOverrides` lets you replace that copy with
+wording that fits your product, without changing how the form behaves.
+
+```ts
+createConnectorFrame({
+  ...,
+  typeId: 'datadog',
+  kind: 'output',
+  configMetaOverrides: {
+    settings: {
+      ddsource: { placeholder: 'northstar' },
+      service: { name: 'Service name', placeholder: 'northstar-web' },
+    },
+  },
+});
+```
+
+**Keys are the connector's own field keys.** They come from the
+connector-type response, not from the labels shown in the form, so check
+that response rather than guessing — the Datadog output's source field is
+`ddsource`, and its tags field is `ddtags`. A key that doesn't match the
+connector is ignored, so a typo is silent: the form renders with Monad's
+original copy.
+
+**`placeholder` is a hint, not a default.** It shows as grey text and
+disappears as soon as the user types. A field the user never touches
+still submits an empty value. There is no option to pre-fill a real
+value, because that would change the data your connector is configured
+with.
+
+### What you can override
+
+Per field: `name`, `description`, `placeholder`.
+
+Nested fields are reached with `children`, and the variants of a
+multiple-choice field with `discriminator.one_of`:
+
+```ts
+configMetaOverrides: {
+  secrets: {
+    api_key: { children: { value: { placeholder: 'Datadog API key' } } },
+  },
+  settings: {
+    auth: {
+      discriminator: {
+        name: 'Auth method',
+        one_of: { basic: { children: { username: { name: 'Login' } } } },
+      },
+    },
+  },
+}
+```
+
+A field's type, whether it is required, its allowed values, and its
+default are fixed by the connector and cannot be overridden. Some
+controls have nowhere to show a placeholder — dropdowns, checkboxes, and
+code editors ignore it. If you need a field to _behave_ differently,
+that's a change to the connector itself; file an issue.
 
 ---
 

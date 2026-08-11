@@ -41,6 +41,59 @@ export interface Appearance {
 	borderRadius?: string;
 }
 
+/**
+ * Copy overrides for a single field of a connector's config form.
+ *
+ * Only copy can be overridden. A field's type, requiredness, allowed
+ * values, and default are fixed by the connector and cannot be changed
+ * here.
+ *
+ * `placeholder` is a hint, not a default: a field the user never touches
+ * still submits an empty value.
+ *
+ * Keys mirror the config shape returned for the connector type, so they
+ * are snake_case — unlike the camelCase options on
+ * `ConnectorFrameOptions`. Field keys are the connector's own keys; the
+ * Datadog output's source field is `ddsource`, not `source`. Keys that
+ * don't match the connector are ignored.
+ */
+export interface FieldMetaOverride {
+	/** Field label. An empty string is ignored — unlabelled fields are a bug. */
+	name?: string;
+	/** Helper text shown with the control. Empty string blanks it. */
+	description?: string;
+	/** Ephemeral hint text inside the control. Empty string blanks it. */
+	placeholder?: string;
+	/** Overrides for a nested object's child fields, keyed by child wire key. */
+	children?: Record<string, FieldMetaOverride>;
+	/** Overrides for a discriminated-union (one_of) field. */
+	discriminator?: DiscriminatorMetaOverride;
+}
+
+/**
+ * Copy overrides for a one_of field's variant selector. The set of
+ * variants, their order, and which one is selected by default are fixed
+ * by the connector.
+ */
+export interface DiscriminatorMetaOverride {
+	/** Label on the variant selector (defaults to "Type"). */
+	name?: string;
+	/** Helper text for the variant selector. */
+	description?: string;
+	/** Per-variant overrides, keyed by discriminator value. */
+	one_of?: Record<string, FieldMetaOverride>;
+}
+
+/**
+ * Config-form copy overrides for one connector, mirroring the two
+ * sections returned for the connector type. Overrides never add fields —
+ * keys that don't match the connector are ignored.
+ */
+export interface ConfigMetaOverrides {
+	settings?: Record<string, FieldMetaOverride>;
+	secrets?: Record<string, FieldMetaOverride>;
+}
+
 /* ===== iframe -> host ===== */
 
 export interface ReadyMessage {
@@ -152,6 +205,11 @@ export interface InitMessage {
 	 * permits for stylesheet `<link>` loads even cross-origin).
 	 */
 	stylesheets?: string[];
+	/**
+	 * Per-field copy overrides merged onto the connector's config form.
+	 * Copy only — see FieldMetaOverride.
+	 */
+	configMetaOverrides?: ConfigMetaOverrides;
 }
 
 export type HostMessage = InitMessage;

@@ -1,0 +1,14 @@
+{
+	// Tests live outside the build project: the main tsconfig sets rootDir to
+	// src (so the emitted dts tree stays clean) and excludes test/. That left
+	// test files in no project at all, which meant they were never typechecked
+	// and typescript-eslint's project service could not parse them.
+	//
+	// Sources imported by a test are pulled in automatically, so this only
+	// needs to list test/.
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true
+	},
+	"include": ["test/**/*"]
+}
