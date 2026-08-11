@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: '.tool-versions'
 
       - name: Spectral lint the OpenAPI contract
         run: pnpm dlx @stoplight/spectral-cli@6 lint packages/embed/openapi/embed.openapi.yaml --ruleset packages/embed/openapi/.spectral.yaml
@@ -34,7 +34,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: '.tool-versions'
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
