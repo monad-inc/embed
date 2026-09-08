@@ -187,11 +187,20 @@ export class MonadApi {
 			})
 		})) as { id: string };
 
+		// The pipeline now EXISTS. Polling for `Running` is a courtesy — a
+		// transient status-poll failure must NOT fail the whole request, or the
+		// caller would treat a live pipeline as un-built and retry into a
+		// duplicate. On a poll error we stop and report the last-known status.
 		let status = 'Pending';
 		for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
-			const s = (await this.req(`/v2/${seg(org)}/pipelines/${seg(pipeline.id)}/status`)) as {
-				status?: string;
-			};
+			let s: { status?: string };
+			try {
+				s = (await this.req(`/v2/${seg(org)}/pipelines/${seg(pipeline.id)}/status`)) as {
+					status?: string;
+				};
+			} catch {
+				break;
+			}
 			status = s?.status ?? status;
 			if (status === 'Running' || status === 'Erroring') break;
 			await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -211,7 +220,21 @@ export class MonadApi {
 				config: { settings: {}, secrets: {} }
 			})
 		})) as { id: string };
-		return this.wire(org, inputId, output.id, name);
+		try {
+			return await this.wire(org, inputId, output.id, name);
+		} catch (e) {
+			// The sink was created but wiring the pipeline failed. Best-effort
+			// delete the orphaned output so a retry doesn't accumulate dev/null
+			// sinks; if the cleanup itself fails, leave it for orphan monitoring
+			// (see docs/embed-security-and-operations.md) and surface the original
+			// error. Create/delete are non-atomic — Monad offers no transaction.
+			try {
+				await this.req(`/v1/${seg(org)}/outputs/${seg(output.id)}`, { method: 'DELETE' });
+			} catch {
+				/* orphaned output — covered by the monitoring runbook */
+			}
+			throw e;
+		}
 	}
 
 	/** Ingress: wire a configured input → the store, or a dev/null sink if none. */
@@ -253,6 +276,10 @@ export class MonadApi {
 		connectorId: string
 	): Promise<PipelineStatus> {
 		const connector = await this.req(`/v1/${seg(org)}/${collection(kind)}/${seg(connectorId)}`);
+		// The embed flow wires each connector into exactly one pipeline (Monad
+		// guarantees a pipeline has a single input, and embed never adds a
+		// connector to a second pipeline), so `component_of` has at most one
+		// entry and taking the first is unambiguous.
 		const [pipeline] = (connector?.component_of ?? []) as any[];
 		if (!pipeline?.id) return { hasPipeline: false, enabled: false };
 

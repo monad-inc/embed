@@ -362,11 +362,13 @@ func (h *handler) notFound(w http.ResponseWriter, r *http.Request) {
 func (h *handler) tenant(w http.ResponseWriter, r *http.Request) (string, bool) {
 	org, err := h.cfg.GetCustomerOrgID(r)
 	if err != nil || org == "" {
-		msg := "Could not resolve a tenant for the request."
+		// Redact the host callback's error detail — it can carry internal
+		// information (DB errors, internal URLs). Log it server-side; return a
+		// generic message, like the upstream-Monad path does.
 		if err != nil {
-			msg = err.Error()
+			log.Printf("[embed] GetCustomerOrgID failed: %v", err)
 		}
-		writeErr(w, http.StatusUnauthorized, "unauthenticated", msg)
+		writeErr(w, http.StatusUnauthorized, "unauthenticated", "Could not resolve a tenant for the request.")
 		return "", false
 	}
 	return org, true

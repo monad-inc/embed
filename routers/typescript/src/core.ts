@@ -141,11 +141,11 @@ export function createEmbedHandler(
 			return org;
 		} catch (e) {
 			if (e instanceof EmbedError) throw e;
-			throw new EmbedError(
-				401,
-				'unauthenticated',
-				e instanceof Error ? e.message : 'Tenant resolution failed.'
-			);
+			// Redact the host callback's error detail — it can carry internal
+			// information (DB errors, internal URLs). Log it server-side; return a
+			// generic message, like the upstream-Monad path does.
+			console.error('[embed] getCustomerOrgID threw:', e);
+			throw new EmbedError(401, 'unauthenticated', 'Could not resolve a tenant for the request.');
 		}
 	}
 
