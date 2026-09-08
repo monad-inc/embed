@@ -10,8 +10,9 @@ export default tseslint.config(
 			'**/node_modules/**',
 			'**/*.config.*',
 			'**/.changeset/**',
-			// Python virtualenvs (conformance harness, python router) ship vendored
-			// JS assets we don't lint.
+			// The conformance suite's Python virtualenv vendors JS that has
+			// nothing to do with us; without this, a local `pnpm lint` drowns in
+			// errors from site-packages (CI never sees it, it checks out clean).
 			'**/.venv/**'
 		]
 	},
@@ -28,7 +29,13 @@ export default tseslint.config(
 		files: ['**/*.ts'],
 		languageOptions: {
 			parserOptions: {
-				projectService: true,
+				projectService: {
+					// Test files sit outside the build tsconfig (it sets rootDir to
+					// src and excludes test/), so the project service finds no
+					// project for them and refuses to parse. They're typechecked
+					// separately via tsconfig.test.json.
+					allowDefaultProject: ['packages/embed/test/*.ts']
+				},
 				tsconfigRootDir: import.meta.dirname
 			}
 		},
