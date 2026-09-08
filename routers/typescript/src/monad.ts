@@ -56,6 +56,12 @@ const POLL_INTERVAL_MS = 2000;
  *  trade-off — correctness comes from draining, not from the size. */
 const PAGE_SIZE = 200;
 
+/** Hard ceiling on pages drained from a single list. Guards against an upstream
+ *  that never returns a short page (e.g. an offset-clamping proxy) so the loop
+ *  is bounded instead of spinning forever / exhausting memory. 1000 × PAGE_SIZE
+ *  = 200k rows — far beyond any real tenant. */
+const MAX_PAGES = 1000;
+
 /** URL-encode a single path segment so browser-supplied ids can't inject query
  *  params or traverse the path (`/`, `?`, `#` are neutralised). */
 const seg = (s: string): string => encodeURIComponent(s);
@@ -136,16 +142,20 @@ export class MonadApi {
 	async listConnectors(org: string, kind: ComponentKind): Promise<ConfiguredConnector[]> {
 		const key = collection(kind);
 		const rows: ConfiguredConnector[] = [];
-		for (let offset = 0; ; offset += PAGE_SIZE) {
+		// A short page is the ONLY safe stop condition. Trusting `pagination.total`
+		// to break early truncates the list whenever Monad under-reports it, so we
+		// drain until a page comes back short. MAX_PAGES bounds a pathological
+		// upstream that never does.
+		for (let pageIndex = 0; ; pageIndex++) {
+			if (pageIndex >= MAX_PAGES) {
+				throw new UpstreamError(0, `pagination exceeded ${MAX_PAGES} pages draining ${key}`);
+			}
+			const offset = pageIndex * PAGE_SIZE;
 			const page = await this.req(`/v1/${seg(org)}/${key}?limit=${PAGE_SIZE}&offset=${offset}`);
 			// Monad returns `null`, not `[]`, for a page with no rows.
 			const items = (page?.[key] ?? []) as { id: string; type: string; name: string }[];
 			rows.push(...items.map((r) => ({ id: r.id, typeId: r.type, name: r.name })));
-			// A short page is the last page; `total` just lets us stop one round
-			// trip earlier when the count divides evenly.
 			if (items.length < PAGE_SIZE) break;
-			const total = page?.pagination?.total;
-			if (typeof total === 'number' && rows.length >= total) break;
 		}
 		return rows;
 	}
