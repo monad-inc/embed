@@ -55,6 +55,11 @@ func (k componentKind) collection() string {
 // response-size trade-off only: correctness comes from draining every page.
 const pageSize = 200
 
+// maxPages bounds draining a single list, so an upstream that never returns a
+// short page (e.g. offset-clamping) can't spin forever / exhaust memory.
+// maxPages * pageSize = 200k rows — far beyond any real tenant.
+const maxPages = 1000
+
 // upstreamError carries a failed Monad call's status + detail. The router maps
 // the status onto the contract's error model (404→not_found, 409→conflict,
 // otherwise 502 upstream_error).
@@ -158,7 +163,14 @@ func (c *client) listCatalog(ctx context.Context, kind componentKind, allow []st
 func (c *client) listConnectors(ctx context.Context, org string, kind componentKind) ([]ConfiguredConnector, error) {
 	key := kind.collection()
 	out := []ConfiguredConnector{}
-	for offset := 0; ; offset += pageSize {
+	// A short page is the ONLY safe stop: trusting pagination.total to break
+	// early truncates the list when Monad under-reports it. maxPages bounds a
+	// pathological upstream that never returns a short page.
+	for pageIndex := 0; ; pageIndex++ {
+		if pageIndex >= maxPages {
+			return nil, fmt.Errorf("pagination exceeded %d pages draining %s", maxPages, key)
+		}
+		offset := pageIndex * pageSize
 		path := fmt.Sprintf("/v1/%s/%s?limit=%d&offset=%d", url.PathEscape(org), key, pageSize, offset)
 		data, err := c.do(ctx, "GET", path, nil)
 		if err != nil {
@@ -186,18 +198,9 @@ func (c *client) listConnectors(ctx context.Context, org string, kind componentK
 			// Monad names the type slug `type` here; the contract calls it typeId.
 			out = append(out, ConfiguredConnector{ID: r.ID, TypeID: r.Type, Name: r.Name})
 		}
-		// A short page is the last page. `total` only lets us stop one round trip
-		// earlier when the count happens to divide evenly.
+		// A short page is the last page.
 		if len(rows) < pageSize {
 			return out, nil
-		}
-		var pg struct {
-			Total int `json:"total"`
-		}
-		if raw, ok := page["pagination"]; ok {
-			if err := json.Unmarshal(raw, &pg); err == nil && pg.Total > 0 && len(out) >= pg.Total {
-				return out, nil
-			}
 		}
 	}
 }

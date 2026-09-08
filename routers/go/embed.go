@@ -398,9 +398,15 @@ func requireStr(w http.ResponseWriter, value, field string) bool {
 	return true
 }
 
+// maxBodyBytes caps a request body. Embed requests carry only ids + names, so
+// 1 MiB is generous; the cap stops a hostile/buggy client (behind host auth)
+// from driving the shared process to OOM with an oversized body.
+const maxBodyBytes = 1 << 20
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid_request", "Request body must be valid JSON.")
+		writeErr(w, http.StatusBadRequest, "invalid_request", "Request body must be valid JSON or is too large.")
 		return false
 	}
 	return true
