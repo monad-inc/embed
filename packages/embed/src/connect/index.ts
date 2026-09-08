@@ -20,6 +20,7 @@ import {
 	PROTOCOL_VERSION,
 	type Appearance,
 	type ComponentKind,
+	type ConfigMetaOverrides,
 	type FrameMessage,
 	type HostMessage
 } from './protocol';
@@ -29,6 +30,9 @@ export {
 	PROTOCOL_VERSION,
 	type Appearance,
 	type ComponentKind,
+	type ConfigMetaOverrides,
+	type DiscriminatorMetaOverride,
+	type FieldMetaOverride,
 	type FrameMessage,
 	type HostMessage,
 	type InitMessage
@@ -128,6 +132,27 @@ export interface ConnectorFrameOptions {
 	 * iframe — typically served by the host page's own origin.
 	 */
 	stylesheets?: string[];
+	/**
+	 * Per-field copy overrides for the connector's config form: label,
+	 * description, placeholder. Copy only — nothing that changes a
+	 * field's type, requiredness, or submitted value.
+	 *
+	 *   configMetaOverrides: {
+	 *     settings: {
+	 *       ddsource: { placeholder: 'northstar' },
+	 *       service: { placeholder: 'northstar-web' },
+	 *     },
+	 *   }
+	 *
+	 * Keys are the connector's own wire keys, so check the connector-type
+	 * response rather than guessing — the Datadog output's source field is
+	 * `ddsource`, not `source`. Unmatched keys are ignored.
+	 *
+	 * `placeholder` is a hint, not a default: a field the user never
+	 * touches still submits `""`. Nested fields are reached with
+	 * `children`, union variants with `discriminator.one_of.<variant>`.
+	 */
+	configMetaOverrides?: ConfigMetaOverrides;
 	/** Fired when the user saves successfully. */
 	onSave?: (connector: { id: string; name?: string }) => void;
 	/** Fired when the user cancels. */
@@ -238,7 +263,8 @@ export function createConnectorFrame(opts: ConnectorFrameOptions): ConnectorFram
 					existingId: opts.existingId,
 					synthetic: opts.synthetic,
 					appearance: opts.appearance,
-					stylesheets: opts.stylesheets
+					stylesheets: opts.stylesheets,
+					configMetaOverrides: opts.configMetaOverrides
 				});
 				break;
 			case 'resize': {

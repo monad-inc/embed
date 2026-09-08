@@ -7,7 +7,9 @@ LICENSE
 NOTICE
 .github/CODEOWNERS
 
-# Python harness tooling (conformance venv + caches) — not ours to format
+# Local artifacts from running the Python conformance suite. Untracked, so CI
+# never sees them, but without this a local `pnpm format:check` reports dozens
+# of failures from site-packages.
 **/.venv
 **/.pytest_cache
 **/__pycache__

@@ -1,3 +1,8 @@
 packages:
   - 'packages/*'
   - 'routers/typescript'
+# pnpm 10+ blocks dependency lifecycle scripts by default; allowBuilds is the
+# pnpm 11 replacement for onlyBuiltDependencies. esbuild (used by tsup) is
+# non-functional without its install script.
+allowBuilds:
+  esbuild: true
