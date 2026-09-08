@@ -61,7 +61,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: matrix.router == 'ts'
         with:
-          node-version: 22
+          node-version-file: '.tool-versions'
           cache: pnpm
 
       - name: Build the TS router

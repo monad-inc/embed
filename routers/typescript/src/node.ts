@@ -12,6 +12,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createEmbedHandler, type EmbedRequest, type EmbedServerConfig } from './core';
 
+/** Cap on a buffered request body. Embed requests carry only ids + names, so
+ *  1 MiB is generous; the cap stops a hostile/buggy client (behind host auth)
+ *  from driving the bare-Node adapter to OOM. */
+const MAX_BODY_BYTES = 1 << 20;
+
+/** Thrown when a request body exceeds {@link MAX_BODY_BYTES}. */
+class PayloadTooLargeError extends Error {}
+
 export interface EmbedRouterOptions {
 	/**
 	 * Path prefix to strip from the incoming URL before matching. Defaults to
@@ -38,8 +46,15 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 	if (method === 'GET' || method === 'HEAD') return undefined;
 
 	const chunks: Buffer[] = [];
+	let size = 0;
 	for await (const chunk of req) {
-		chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Buffer));
+		const buf = typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Buffer);
+		size += buf.length;
+		if (size > MAX_BODY_BYTES) {
+			req.destroy();
+			throw new PayloadTooLargeError();
+		}
+		chunks.push(buf);
 	}
 	if (chunks.length === 0) return undefined;
 	const text = Buffer.concat(chunks).toString('utf8').trim();
@@ -83,14 +98,23 @@ export function createEmbedRouter(config: EmbedServerConfig, options: EmbedRoute
 			}
 			res.setHeader('content-type', 'application/json; charset=utf-8');
 			res.end(JSON.stringify(result.body));
-		})().catch(() => {
-			if (!res.headersSent) {
-				res.statusCode = 500;
-				res.setHeader('content-type', 'application/json; charset=utf-8');
-				res.end(JSON.stringify({ code: 'internal_error', message: 'Request handling failed.' }));
-			} else {
+		})().catch((err) => {
+			if (res.headersSent) {
 				res.end();
+				return;
 			}
+			// A too-large body maps to the contract's 400 invalid_request (413 is
+			// not a declared status); anything else is a generic 500.
+			const tooLarge = err instanceof PayloadTooLargeError;
+			res.statusCode = tooLarge ? 400 : 500;
+			res.setHeader('content-type', 'application/json; charset=utf-8');
+			res.end(
+				JSON.stringify(
+					tooLarge
+						? { code: 'invalid_request', message: 'Request body exceeds the maximum size.' }
+						: { code: 'internal_error', message: 'Request handling failed.' }
+				)
+			);
 		});
 	};
 }
