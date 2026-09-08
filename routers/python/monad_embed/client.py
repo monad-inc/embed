@@ -158,9 +158,16 @@ class MonadClient:
         async with self._open() as c:
             created = await self._do(c, "POST", f"/v2/{_seg(org)}/pipelines/", body)
             pid = created["id"]
+            # The pipeline now EXISTS. Polling for Running is a courtesy — a
+            # transient status-poll failure must NOT fail the request, or the
+            # caller treats a live pipeline as un-built and retries into a
+            # duplicate. On a poll error we stop with the last-known status.
             status = "Pending"
             for _ in range(self._poll_attempts):
-                s = await self._do(c, "GET", f"/v2/{_seg(org)}/pipelines/{_seg(pid)}/status")
+                try:
+                    s = await self._do(c, "GET", f"/v2/{_seg(org)}/pipelines/{_seg(pid)}/status")
+                except MonadError:
+                    break
                 status = (s or {}).get("status") or status
                 if status in ("Running", "Erroring"):
                     break
@@ -184,7 +191,20 @@ class MonadClient:
                     "config": {"settings": {}, "secrets": {}},
                 },
             )
-        return await self.wire_pipeline(org, input_id, out["id"], name)
+        try:
+            return await self.wire_pipeline(org, input_id, out["id"], name)
+        except Exception:
+            # The sink was created but wiring failed. Best-effort delete it so a
+            # retry doesn't accumulate dev/null outputs; if the cleanup itself
+            # fails, leave it for orphan monitoring
+            # (docs/embed-security-and-operations.md) and surface the original
+            # error. Create/delete are non-atomic — Monad offers no transaction.
+            try:
+                async with self._open() as c:
+                    await self._do(c, "DELETE", f"/v1/{_seg(org)}/outputs/{_seg(out['id'])}")
+            except Exception:
+                pass
+            raise
 
     async def _pipeline_nodes(self, c: httpx.AsyncClient, org: str, pid: str) -> list[dict]:
         """A pipeline's wiring. The detail response is flat — the nodes sit at
@@ -209,6 +229,10 @@ class MonadClient:
             connector = await self._do(
                 c, "GET", f"/v1/{_seg(org)}/{_collection(kind)}/{_seg(connector_id)}"
             )
+            # The embed flow wires each connector into exactly one pipeline
+            # (Monad guarantees a pipeline has a single input, and embed never
+            # adds a connector to a second pipeline), so component_of has at most
+            # one entry and taking the first is unambiguous.
             pipelines = (connector or {}).get("component_of") or []
             if not pipelines or not pipelines[0].get("id"):
                 return PipelineStatus(hasPipeline=False, enabled=False)
