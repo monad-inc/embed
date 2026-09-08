@@ -30,6 +30,12 @@ _POLL_INTERVAL = 2.0
 # correctness comes from draining every page.
 _PAGE_SIZE = 200
 
+# Hard ceiling on pages drained from a single list, so an upstream that never
+# returns a short page (e.g. offset-clamping) bounds the loop instead of
+# spinning forever / exhausting memory. _MAX_PAGES * _PAGE_SIZE = 200k rows —
+# far beyond any real tenant.
+_MAX_PAGES = 1000
+
 
 def _seg(value: Any) -> str:
     """URL-encode a single path segment so browser-supplied ids can't inject
@@ -110,8 +116,11 @@ class MonadClient:
         key = _collection(kind)
         out: list[ConfiguredConnector] = []
         async with self._open() as c:
-            offset = 0
-            while True:
+            # A short page is the only safe stop; trusting pagination.total to
+            # break early truncates the list when Monad under-reports it.
+            # _MAX_PAGES bounds an upstream that never returns a short page.
+            for page_index in range(_MAX_PAGES):
+                offset = page_index * _PAGE_SIZE
                 page = await self._do(
                     c, "GET", f"/v1/{_seg(org)}/{key}?limit={_PAGE_SIZE}&offset={offset}"
                 )
@@ -122,14 +131,9 @@ class MonadClient:
                     ConfiguredConnector(id=r["id"], typeId=r["type"], name=r["name"])
                     for r in rows
                 )
-                # A short page is the last page; `total` only lets us stop one
-                # round trip earlier when the count divides evenly.
                 if len(rows) < _PAGE_SIZE:
                     return out
-                total = ((page or {}).get("pagination") or {}).get("total")
-                if isinstance(total, int) and len(out) >= total:
-                    return out
-                offset += _PAGE_SIZE
+        raise MonadError(502, f"pagination exceeded {_MAX_PAGES} pages draining {key}")
 
     async def wire_pipeline(
         self, org: str, input_id: str, output_id: str, name: str
