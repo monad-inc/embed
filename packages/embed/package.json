@@ -31,6 +31,26 @@
 				"default": "./dist/connect/index.cjs"
 			}
 		},
+		"./kit": {
+			"import": {
+				"types": "./dist/kit/index.d.ts",
+				"default": "./dist/kit/index.js"
+			},
+			"require": {
+				"types": "./dist/kit/index.d.cts",
+				"default": "./dist/kit/index.cjs"
+			}
+		},
+		"./client": {
+			"import": {
+				"types": "./dist/client/index.d.ts",
+				"default": "./dist/client/index.js"
+			},
+			"require": {
+				"types": "./dist/client/index.d.cts",
+				"default": "./dist/client/index.cjs"
+			}
+		},
 		"./package.json": "./package.json"
 	},
 	"sideEffects": false,
