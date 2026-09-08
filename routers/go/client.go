@@ -241,11 +241,16 @@ func (c *client) wirePipeline(ctx context.Context, org, inputID, outputID, name 
 		return BuiltPipeline{}, err
 	}
 
+	// The pipeline now EXISTS. Polling for Running is a courtesy — a transient
+	// status-poll failure (or a cancelled request) must NOT fail the request, or
+	// the caller treats a live pipeline as un-built and retries into a duplicate.
+	// On a poll error or cancellation we return the pipeline with its last-known
+	// status instead.
 	status := "Pending"
 	for i := 0; i < c.pollAttempts; i++ {
 		sd, err := c.do(ctx, "GET", "/v2/"+url.PathEscape(org)+"/pipelines/"+url.PathEscape(created.ID)+"/status", nil)
 		if err != nil {
-			return BuiltPipeline{}, err
+			break
 		}
 		var s struct {
 			Status string `json:"status"`
@@ -258,7 +263,7 @@ func (c *client) wirePipeline(ctx context.Context, org, inputID, outputID, name 
 		}
 		select {
 		case <-ctx.Done():
-			return BuiltPipeline{}, ctx.Err()
+			return BuiltPipeline{PipelineID: created.ID, OutputID: outputID, Status: status, Active: false}, nil
 		case <-time.After(c.pollInterval):
 		}
 	}
@@ -284,7 +289,17 @@ func (c *client) buildDevNull(ctx context.Context, org, inputID, name string) (B
 	if err := json.Unmarshal(data, &out); err != nil {
 		return BuiltPipeline{}, err
 	}
-	return c.wirePipeline(ctx, org, inputID, out.ID, name)
+	built, err := c.wirePipeline(ctx, org, inputID, out.ID, name)
+	if err != nil {
+		// The sink was created but wiring failed. Best-effort delete it so a
+		// retry doesn't accumulate dev/null outputs; if the cleanup itself fails,
+		// leave it for orphan monitoring (docs/embed-security-and-operations.md)
+		// and surface the original error. Create/delete are non-atomic — Monad
+		// offers no transaction.
+		_, _ = c.do(ctx, "DELETE", "/v1/"+url.PathEscape(org)+"/outputs/"+url.PathEscape(out.ID), nil)
+		return BuiltPipeline{}, err
+	}
+	return built, nil
 }
 
 type pipeNode struct {
@@ -333,6 +348,10 @@ func (c *client) pipelineFor(ctx context.Context, org string, kind componentKind
 	if err := json.Unmarshal(data, &connector); err != nil {
 		return PipelineStatus{}, err
 	}
+	// The embed flow wires each connector into exactly one pipeline (Monad
+	// guarantees a pipeline has a single input, and embed never adds a connector
+	// to a second pipeline), so component_of has at most one entry and taking the
+	// first is unambiguous.
 	if len(connector.ComponentOf) == 0 || connector.ComponentOf[0].ID == "" {
 		return PipelineStatus{HasPipeline: false}, nil
 	}
