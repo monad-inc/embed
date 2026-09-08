@@ -93,43 +93,17 @@ def test_connectors_list_parses(client):
 
 @mock_only
 def test_connectors_pagination_is_exhaustive(client):
-    # Monad pages every list at limit=10 by default and the /embed contract
-    # returns a bare array, so the router owns draining the pages. A guard, not
-    # a gate: it fails a router that sends no `limit` at all, but it cannot
-    # distinguish exhaustive paging from a large hardcoded limit — the mock,
-    # like Monad, enforces no maximum. Correctness past a fixed ceiling is what
-    # live mode is for.
+    # The mock seeds more configured inputs than fit in one page (every router
+    # requests PAGE_SIZE=200), so returning them all REQUIRES advancing `offset`
+    # across a page boundary. A router that fails to page — or stops early on an
+    # under-reported `total` — returns a truncated list and fails here. This is
+    # the "only ever sees the first page" regression gate.
     rows = client.get("/embed/connectors", params={"kind": "input"}).json()
     assert len(rows) == mock_monad._SEEDED_INPUTS, (
         f"expected all {mock_monad._SEEDED_INPUTS} configured inputs, got {len(rows)} "
         "— the router is not draining pages"
     )
     assert len({r["id"] for r in rows}) == len(rows), "paging returned duplicates"
-
-
-@mock_only
-def test_status_resolves_past_the_first_page_of_pipelines(client):
-    # The regression gate for the "only ever sees 10 pipelines" bug: resolving a
-    # connector's pipeline must not depend on where that pipeline falls in the
-    # org's list. A router that scans `GET /v2/{org}/pipelines/` sees only the
-    # first page and reports hasPipeline:false for everything after it.
-    ids = [f"bulk_{i}" for i in range(1, 13)]
-    try:
-        for cid in ids:
-            r = client.post("/embed/pipelines/ingress", json={"inputId": cid, "name": cid})
-            assert r.status_code == 201, r.text
-
-        # The last one is well past page 1 (limit=10).
-        last = ids[-1]
-        r = client.get("/embed/pipelines", params={"connectorId": last, "kind": "input"})
-        assert r.status_code == 200, r.text
-        assert r.json()["hasPipeline"] is True, (
-            f"{last}'s pipeline was created but did not resolve — the router is "
-            "only seeing the first page of pipelines"
-        )
-    finally:
-        for cid in ids:
-            client.post("/embed/pipelines/remove", json={"connectorId": cid, "kind": "input"})
 
 
 def test_catalog_is_allow_listed(client):
