@@ -38,13 +38,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # Monad's list handlers all default to 10 and enforce no maximum.
 DEFAULT_LIMIT = 10
 
-# Enough configured inputs that a router which does not page sees a truncated
-# list. `test_connectors_pagination_is_exhaustive` pins the full count.
-_SEEDED_INPUTS = 12
-
-# Inputs the bulk-pipeline scenario wires, one pipeline each, to push the
-# pipeline list past its first page.
-_BULK_INPUTS = 12
+# More configured inputs than fit in one page (every router requests
+# PAGE_SIZE=200), so draining MUST advance `offset` across a page boundary to
+# see them all. A router that fails to page sees a truncated list and
+# `test_connectors_pagination_is_exhaustive` fails — turning the "only ever sees
+# the first page" class of bug into a test failure instead of a live incident.
+_SEEDED_INPUTS = 205
 
 
 def _seed_connectors() -> dict[str, dict[str, dict]]:
@@ -65,10 +64,10 @@ def _seed_connectors() -> dict[str, dict[str, dict]]:
         }
         for i in range(1, _SEEDED_INPUTS + 1)
     }
-    # Ids the lifecycle scenarios wire, resolvable but outside the listed page
-    # so they cannot perturb the pagination counts. `bulk_*` exists to push the
-    # pipeline list past its first page.
-    extras = ["in_conf", "in_dup_conflict"] + [f"bulk_{i}" for i in range(1, _BULK_INPUTS + 1)]
+    # Ids the lifecycle scenarios wire, resolvable but marked unlisted so they
+    # don't perturb the pagination counts the drain test pins. `in_devnull` is
+    # the throwaway the no-store dev/null test wires.
+    extras = ["in_conf", "in_dup_conflict", "in_devnull"]
     for extra in extras:
         inputs[extra] = {
             "id": extra,

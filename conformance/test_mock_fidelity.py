@@ -72,10 +72,12 @@ def test_connectors_list_defaults_to_ten(http):
     assert len(unpaged["inputs"]) == 10
     assert unpaged["pagination"] == {"limit": 10, "offset": 0, "total": mock_monad._SEEDED_INPUTS}
 
+    # A page honors the requested limit (not the count remaining).
     rest = http.get(f"/v1/{_ORG}/inputs?limit=10&offset=10").json()
-    assert len(rest["inputs"]) == mock_monad._SEEDED_INPUTS - 10
+    assert len(rest["inputs"]) == 10
     # Past the end the list is null, not [] — the same shape as "tenant has none".
-    assert http.get(f"/v1/{_ORG}/inputs?limit=10&offset=99").json()["inputs"] is None
+    beyond = mock_monad._SEEDED_INPUTS + 50
+    assert http.get(f"/v1/{_ORG}/inputs?limit=10&offset={beyond}").json()["inputs"] is None
 
 
 @pytest.mark.parametrize("kind", ["input", "output"])
