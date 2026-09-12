@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 )
 
@@ -99,11 +100,11 @@ func (c *client) do(ctx context.Context, method, path string, body any) ([]byte,
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		msg := string(data)
-		if len(msg) > 300 {
-			msg = msg[:300]
-		}
-		return nil, &upstreamError{status: resp.StatusCode, detail: fmt.Sprintf("%d %s: %s", resp.StatusCode, path, msg)}
+		// Keep the FULL upstream body in the detail: it is logged server-side
+		// only (never returned to the browser), and truncating it can drop the
+		// validation details that make a failure diagnosable. The status is a
+		// struct field, so it isn't repeated in the string.
+		return nil, &upstreamError{status: resp.StatusCode, detail: fmt.Sprintf("%s: %s", path, string(data))}
 	}
 	return data, nil
 }
@@ -137,16 +138,11 @@ func (c *client) listCatalog(ctx context.Context, kind componentKind, allow []st
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	var allowSet map[string]bool
-	if len(allow) > 0 {
-		allowSet = make(map[string]bool, len(allow))
-		for _, a := range allow {
-			allowSet[a] = true
-		}
-	}
 	out := []CatalogType{}
 	for _, t := range raw {
-		if allowSet != nil && !allowSet[t.TypeID] {
+		// allow is a short operator-configured set of connector types, so a
+		// linear check is simpler than building a set and the list is tiny.
+		if len(allow) > 0 && !slices.Contains(allow, t.TypeID) {
 			continue
 		}
 		out = append(out, CatalogType{TypeID: t.TypeID, Name: t.Name})
