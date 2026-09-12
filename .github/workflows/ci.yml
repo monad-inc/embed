@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        router: [ts, go]
+        router: [ts, go, python]
     steps:
       - uses: actions/checkout@v4
 
@@ -83,6 +83,11 @@ jobs:
         run: |
           uv venv --python 3.10 .venv
           uv pip install --python .venv/bin/python schemathesis pytest httpx jsonschema
+
+      - name: Install the Python router into the harness
+        if: matrix.router == 'python'
+        working-directory: conformance
+        run: uv pip install --python .venv/bin/python fastapi uvicorn -e ../routers/python
 
       - name: Run conformance (${{ matrix.router }})
         working-directory: conformance
