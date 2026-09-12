@@ -102,6 +102,10 @@ Mount the router behind your auth middleware; it performs no authentication of
 its own beyond calling this hook, and treats `("", nil)` or a non-nil error as
 `401`.
 
+For the full trust model — why each embed tenant needs its **own dedicated
+Monad org**, and the recommendation to monitor for orphaned resources — see
+[`docs/embed-security-and-operations.md`](../../docs/embed-security-and-operations.md).
+
 You own this mapping because only you can know it: Monad has no endpoint that
 turns your product's bearer token into an org id. (`GET /v1/organizations` maps
 a _Monad API key_ to the orgs it can reach — not your user to their tenant.)
