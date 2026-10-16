@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- 11e82ea: Docs: refer to Monad "teams" as "sub-orgs" (sub-organizations) in the README, USAGE guide, OpenAPI spec and JSDoc. No API changes.
+
 ## 0.3.0
 
 ### Minor Changes
