@@ -145,7 +145,7 @@ export interface InitMessage {
 	/** Monad API base, e.g. "https://api.monad.com" or dev "http://localhost/api". */
 	apiBase: string;
 	/**
-	 * Team org id the session token is scoped to. The iframe uses this to
+	 * Sub-org id the session token is scoped to. The iframe uses this to
 	 * build `/v1/<org>/*` and `/v2/<org>/*` URLs. Must match the token's
 	 * `org` claim — server-side `org_access.Middleware` will 403 if not.
 	 */

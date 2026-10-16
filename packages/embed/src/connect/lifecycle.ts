@@ -53,8 +53,8 @@ interface PipelineNode {
  *
  * The pipelines list is slim (no node wiring), so this fetches each
  * pipeline's detail and scans for the input node. Fine for the modest
- * pipeline counts a single tenant team has; a host managing many
- * pipelines per team should instead persist the `pipelineId`
+ * pipeline counts a single tenant sub-org has; a host managing many
+ * pipelines per sub-org should instead persist the `pipelineId`
  * buildDevNullPipeline returns and skip the lookup.
  *
  * Returns null when the input has no pipeline.

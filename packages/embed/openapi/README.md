@@ -26,7 +26,7 @@ to scaffold servers. It is used to:
 - **camelCase everywhere.** Backends normalize the Monad API's mixed casing at
   their boundary so this host-facing contract stays uniform.
 - **Auth is the host's.** Routes run inside the host app behind its existing
-  auth. The backend derives the Monad team (`organizationId`) from the request
+  auth. The backend derives the Monad sub-org (`organizationId`) from the request
   via its own `getCustomerOrgID` hook; the browser never sends a tenant id.
 - **The pre-provisioned side is server-resolved.** Ingress's store output,
   egress's source input, and the delete cleanup policy are decided server-side,
@@ -40,7 +40,7 @@ to scaffold servers. It is used to:
 | Method · path                   | operationId            | Purpose                                         |
 | ------------------------------- | ---------------------- | ----------------------------------------------- |
 | `GET /embed/config`             | `getConfig`            | Non-secret iframe config (public).              |
-| `POST /embed/session`           | `createSession`        | Mint a short-lived, team-scoped token.          |
+| `POST /embed/session`           | `createSession`        | Mint a short-lived, sub-org-scoped token.       |
 | `GET /embed/catalog`            | `listCatalog`          | Offered connector types for a kind.             |
 | `GET /embed/connectors`         | `listConnectors`       | A tenant's configured connectors.               |
 | `POST /embed/pipelines/ingress` | `buildIngressPipeline` | Wire a configured input → the tenant's store.   |

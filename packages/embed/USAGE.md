@@ -22,7 +22,7 @@ Zero runtime dependencies.
 ## How it works
 
 Two pieces of code: a **session-mint endpoint on your backend** mints
-a short-lived, team-scoped token from your long-lived Monad API key,
+a short-lived, sub-org-scoped token from your long-lived Monad API key,
 and a **`createConnectorFrame()` call on your frontend** mounts the
 iframe using that token. Both shown below.
 
@@ -31,14 +31,14 @@ iframe using that token. Both shown below.
 ## Step 1 — Mint a session token from your backend
 
 Your backend exchanges its long-lived Monad API key for a short-lived,
-team-scoped session token, then hands that token to your frontend.
+sub-org-scoped session token, then hands that token to your frontend.
 
 Example (any HTTP framework — shown here as a Next.js Route Handler):
 
 ```ts
 // app/api/monad/session/route.ts
 export async function POST(req: Request) {
-	const { teamId } = await req.json(); // your tenant → Monad team mapping
+	const { subOrgId } = await req.json(); // your tenant → Monad sub-org mapping
 
 	const r = await fetch('https://app.monad.com/api/v3/sessions', {
 		method: 'POST',
@@ -47,12 +47,12 @@ export async function POST(req: Request) {
 			Authorization: `ApiKey ${process.env.MONAD_API_KEY}`
 		},
 		body: JSON.stringify({
-			organization_id: teamId,
+			organization_id: subOrgId,
 			ttl_seconds: 1800
 		})
 	});
 	const { session_token, expires_at } = await r.json();
-	return Response.json({ session_token, expires_at, organizationId: teamId });
+	return Response.json({ session_token, expires_at, organizationId: subOrgId });
 }
 ```
 
@@ -79,7 +79,7 @@ import { createConnectorFrame } from '@monad-inc/embed/connect';
 // Fetch a fresh session from your own backend.
 const { session_token, organizationId } = await fetch('/api/monad/session', {
 	method: 'POST',
-	body: JSON.stringify({ teamId: currentUser.teamId })
+	body: JSON.stringify({ subOrgId: currentUser.subOrgId })
 }).then((r) => r.json());
 
 const frame = createConnectorFrame({
@@ -109,7 +109,7 @@ controls the surrounding chrome.
 | ----------------------- | ---------------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `container`             | `HTMLElement \| string`      | ✅       | —                                | Element (or CSS selector) the iframe is appended to.                                                                                        |
 | `sessionToken`          | `string`                     | ✅       | —                                | Short-lived token from `POST /v3/sessions` (your backend mints this).                                                                       |
-| `organizationId`        | `string`                     | ✅       | —                                | Monad team org id the session is scoped to. Same value you passed to `/v3/sessions`.                                                        |
+| `organizationId`        | `string`                     | ✅       | —                                | Monad sub-org id the session is scoped to. Same value you passed to `/v3/sessions`.                                                         |
 | `kind`                  | `'input' \| 'output'`        | ✅       | —                                | Which catalog the connector belongs to.                                                                                                     |
 | `typeId`                | `string`                     | ✅       | —                                | Connector type slug, e.g. `'aws-cloudtrail'`, `'okta-systemlog'`.                                                                           |
 | `existingId`            | `string`                     | ⛔       | —                                | Pass to edit an existing connector. Omit to create a new one.                                                                               |
@@ -231,7 +231,7 @@ that's a change to the connector itself; file an issue.
   on your domain. Browser same-origin policy means your JavaScript
   cannot read the iframe's DOM or any value the user types.
 - **Session tokens are short-lived.** Default 30 min, scoped to a
-  single team. Compromise of a session token is bounded; compromise
+  single sub-org. Compromise of a session token is bounded; compromise
   of the long-lived API key is not — keep it on your backend.
 - **postMessage with strict origin checks.** Every message between
   your page and the iframe is validated against the expected origin
