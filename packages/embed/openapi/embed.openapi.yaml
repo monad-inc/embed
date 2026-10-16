@@ -23,7 +23,7 @@ info:
       contract stays uniformly camelCase.
     - **Auth is the host's.** These routes run inside the host app and are
       protected by its existing session/auth. The backend derives the Monad
-      team (`organizationId`) from the authenticated request via its own
+      sub-org (`organizationId`) from the authenticated request via its own
       `getCustomerOrgID` hook — the browser never sends a tenant id.
     - **The pre-provisioned side is server-resolved.** For ingress the store
       output, for egress the source input, and the delete cleanup policy are
@@ -50,7 +50,7 @@ tags:
   - name: Config
     description: Non-secret configuration the browser needs to mount the iframe.
   - name: Session
-    description: Minting short-lived, team-scoped tokens for the iframe.
+    description: Minting short-lived, sub-org-scoped tokens for the iframe.
   - name: Catalog
     description: Which connector types are offered, and what a tenant has configured.
   - name: Pipelines
@@ -90,12 +90,12 @@ paths:
       summary: Mint an embed session token
       description: >
         Trades the host's long-lived Monad API key for a short-lived,
-        team-scoped session token. The tenant is derived from the authenticated
+        sub-org-scoped session token. The tenant is derived from the authenticated
         request server-side (never sent by the browser). The returned token is
         the only credential that crosses into the iframe.
       responses:
         '200':
-          description: A freshly minted session, scoped to the caller's tenant team.
+          description: A freshly minted session, scoped to the caller's tenant sub-org.
           content:
             application/json:
               schema:
@@ -390,7 +390,7 @@ components:
         The host application's own session/auth. These routes are mounted inside
         the host app and protected by its existing middleware; the cookie shown
         here is illustrative — use whatever your app already uses. The backend
-        derives the Monad team (`organizationId`) from this authenticated request
+        derives the Monad sub-org (`organizationId`) from this authenticated request
         via its `getCustomerOrgID` hook. `GET /embed/config` is the only unauthenticated
         route.
 
@@ -439,10 +439,10 @@ components:
       properties:
         sessionToken:
           type: string
-          description: Short-lived, team-scoped token. Pass to the iframe; never log or persist.
+          description: Short-lived, sub-org-scoped token. Pass to the iframe; never log or persist.
         organizationId:
           type: string
-          description: The Monad team (org) id the token is scoped to.
+          description: The Monad sub-org id the token is scoped to.
         expiresAt:
           type: string
           format: date-time
@@ -623,7 +623,7 @@ components:
     Forbidden:
       description: >
         Authenticated, but not permitted for the requested tenant or resource —
-        for example the host's `getCustomerOrgID` could not map the caller to a Monad team.
+        for example the host's `getCustomerOrgID` could not map the caller to a Monad sub-org.
       content:
         application/json:
           schema:
@@ -651,7 +651,7 @@ components:
             $ref: '#/components/schemas/Error'
           example:
             code: conflict
-            message: A connector with that name already exists in this team.
+            message: A connector with that name already exists in this sub-org.
     UpstreamError:
       description: The Monad API returned an error or was unreachable.
       content:

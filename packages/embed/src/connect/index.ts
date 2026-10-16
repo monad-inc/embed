@@ -84,7 +84,7 @@ export interface ConnectorFrameOptions {
 	/** Short-lived embed session token (host backend mints it). */
 	sessionToken: string;
 	/**
-	 * Team org id the session is scoped to. The host backend already knows
+	 * Sub-org id the session is scoped to. The host backend already knows
 	 * this — it's the same value passed to `/v1/embed/sessions` when minting
 	 * the token. Forwarded into the iframe so it can build `/v1/<org>/*` and
 	 * `/v2/<org>/*` URLs.
