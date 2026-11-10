@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- e801d03: Add a `default` key to `configMetaOverrides` fields so hosts can prefill a value on new connectors.
+
 ## 0.3.1
 
 ### Patch Changes
