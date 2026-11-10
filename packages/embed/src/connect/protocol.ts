@@ -44,12 +44,11 @@ export interface Appearance {
 /**
  * Copy overrides for a single field of a connector's config form.
  *
- * Only copy can be overridden. A field's type, requiredness, allowed
- * values, and default are fixed by the connector and cannot be changed
- * here.
+ * Only copy and a scalar `default` can be overridden. A field's type,
+ * requiredness, and allowed values are fixed by the connector.
  *
- * `placeholder` is a hint, not a default: a field the user never touches
- * still submits an empty value.
+ * `placeholder` is a hint: a field the user never touches still submits
+ * an empty value. Use `default` to prefill a real value.
  *
  * Keys mirror the config shape returned for the connector type, so they
  * are snake_case — unlike the camelCase options on
@@ -64,6 +63,12 @@ export interface FieldMetaOverride {
 	description?: string;
 	/** Ephemeral hint text inside the control. Empty string blanks it. */
 	placeholder?: string;
+	/**
+	 * Prefilled value for a new connector. Stays editable and is submitted.
+	 * Ignored when editing, so the saved value wins. Applies to string
+	 * (within its allowed values), number and boolean fields only.
+	 */
+	default?: string | number | boolean;
 	/** Overrides for a nested object's child fields, keyed by child wire key. */
 	children?: Record<string, FieldMetaOverride>;
 	/** Overrides for a discriminated-union (one_of) field. */
