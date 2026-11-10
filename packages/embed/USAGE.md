@@ -120,7 +120,7 @@ controls the surrounding chrome.
 | `isDescriptionEditable` | `boolean`                    | ⛔       | `false`                          | Show an editable description input in the iframe (prefilled with `description` if provided).                                                |
 | `appearance`            | `Appearance`                 | ⛔       | Monad defaults                   | Theming tokens (see below).                                                                                                                 |
 | `stylesheets`           | `string[]`                   | ⛔       | Monad's built-in stylesheet      | Your own stylesheet URLs. All-or-nothing: if set, Monad's defaults are not loaded (see below).                                              |
-| `configMetaOverrides`   | `ConfigMetaOverrides`        | ⛔       | the connector's own copy         | Per-field label / description / placeholder overrides (see below).                                                                          |
+| `configMetaOverrides`   | `ConfigMetaOverrides`        | ⛔       | the connector's own copy         | Per-field label / description / placeholder / default overrides (see below).                                                                |
 | `synthetic`             | `boolean`                    | ⛔       | `false`                          | Exposes Monad's internal synthetic-data toggle. Keep off in production.                                                                     |
 | `frameOrigin`           | `string`                     | ⛔       | `https://app.monad.com/embed`    | Override only for non-prod testing.                                                                                                         |
 | `apiBase`               | `string`                     | ⛔       | `https://app.monad.com/api`      | Override only for non-prod testing.                                                                                                         |
@@ -190,13 +190,25 @@ original copy.
 
 **`placeholder` is a hint, not a default.** It shows as grey text and
 disappears as soon as the user types. A field the user never touches
-still submits an empty value. There is no option to pre-fill a real
-value, because that would change the data your connector is configured
-with.
+still submits an empty value. To pre-fill a real value, use `default`.
 
 ### What you can override
 
-Per field: `name`, `description`, `placeholder`.
+Per field: `name`, `description`, `placeholder`, `default`.
+
+`default` pre-fills the field when a user creates a connector. The value
+is editable and is submitted like any other. It is ignored when editing an
+existing connector, so the saved value always wins. It works on string
+(including dropdowns — the value must be one of the options), number, and
+boolean fields; anything else, or a value of the wrong type, is ignored.
+
+```ts
+configMetaOverrides: {
+  settings: {
+    summary_config: { children: { alert_source: { default: 'northstar' } } },
+  },
+}
+```
 
 Nested fields are reached with `children`, and the variants of a
 multiple-choice field with `discriminator.one_of`:
@@ -217,8 +229,8 @@ configMetaOverrides: {
 }
 ```
 
-A field's type, whether it is required, its allowed values, and its
-default are fixed by the connector and cannot be overridden. Some
+A field's type, whether it is required, and its allowed values are fixed
+by the connector and cannot be overridden. Some
 controls have nowhere to show a placeholder — dropdowns, checkboxes, and
 code editors ignore it. If you need a field to _behave_ differently,
 that's a change to the connector itself; file an issue.
